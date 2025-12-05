@@ -4,6 +4,7 @@
 
 #include "slic3r/GUI/GUI.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
+#include "slic3r/GUI/Studio.hpp"
 #include "slic3r/GUI/3DScene.hpp"
 #include "slic3r/GUI/InstanceCheck.hpp"
 #include "slic3r/GUI/format.hpp"
@@ -39,6 +40,9 @@ int GUI_Run(GUI_InitParams &params)
 
     //BBS: remove the try-catch and let exception goto above
     try {
+        // Create Studio singleton first
+        GUI::Studio::create();
+
         //GUI::GUI_App* gui = new GUI::GUI_App(params.start_as_gcodeviewer ? GUI::GUI_App::EAppMode::GCodeViewer : GUI::GUI_App::EAppMode::Editor);
         GUI::GUI_App* gui = new GUI::GUI_App();
         //if (gui->get_app_mode() != GUI::GUI_App::EAppMode::GCodeViewer) {
@@ -46,6 +50,7 @@ int GUI_Run(GUI_InitParams &params)
             bool gui_single_instance_setting = gui->app_config->get("app", "single_instance") == "true";
             if (Slic3r::instance_check(params.argc, params.argv, gui_single_instance_setting)) {
                 //TODO: do we have delete gui and other stuff?
+                GUI::Studio::destroy();
                 return -1;
             }
         //}
@@ -54,16 +59,21 @@ int GUI_Run(GUI_InitParams &params)
         GUI::GUI_App::SetInstance(gui);
         gui->init_params = &params;
 
+        int result;
         if (params.argc > 1) {
             // STUDIO-273 wxWidgets report error when opening some files with specific names
             // wxWidgets does not handle parameters, so intercept parameters here, only keep the app name
             int                 argc = 1;
             std::vector<char *> argv;
             argv.push_back(params.argv[0]);
-            return wxEntry(argc, argv.data());
+            result = wxEntry(argc, argv.data());
         } else {
-            return wxEntry(params.argc, params.argv);
+            result = wxEntry(params.argc, params.argv);
         }
+
+        // Destroy Studio singleton after wxWidgets exits
+        GUI::Studio::destroy();
+        return result;
     } catch (const Slic3r::Exception &ex) {
         BOOST_LOG_TRIVIAL(error) << ex.what() << std::endl;
         wxMessageBox(boost::nowide::widen(ex.what()), _L("Bambu Studio GUI initialization failed"), wxICON_STOP);
@@ -71,6 +81,12 @@ int GUI_Run(GUI_InitParams &params)
         BOOST_LOG_TRIVIAL(error) << ex.what() << std::endl;
         wxMessageBox(format_wxstr(_L("Fatal error, exception caught: %1%"), ex.what()), _L("Bambu Studio GUI initialization failed"), wxICON_STOP);
     }
+
+    // Cleanup on error
+    if (GUI::Studio::is_initialized()) {
+        GUI::Studio::destroy();
+    }
+
     // error
     return 1;
 }

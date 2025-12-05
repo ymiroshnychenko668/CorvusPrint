@@ -96,6 +96,10 @@
 #include "Jobs/PlaterWorker.hpp"
 #include "Jobs/BoostThreadWorker.hpp"
 #include "BackgroundSlicingProcess.hpp"
+#include "../Network/HttpSlicerApi.hpp"
+#if SLIC3R_HAS_MOSQUITTO
+#include "../Network/MqttEventSink.hpp"
+#endif
 #include "SelectMachine.hpp"
 #include "SendMultiMachinePage.hpp"
 #include "SendToPrinter.hpp"
@@ -4286,6 +4290,15 @@ public:
 
     BackgroundSlicingProcess    background_process;
     HelioBackgroundProcess      helio_background_process;
+
+    // HTTP API for remote control
+    std::shared_ptr<HttpSlicerApi> http_api;
+
+    // MQTT event sink for publishing slicing events
+#if SLIC3R_HAS_MOSQUITTO
+    std::shared_ptr<MqttEventSink> mqtt_sink;
+#endif
+
     bool suppressed_backround_processing_update { false };
     // UIThreadWorker can be used as a replacement for BoostThreadWorker if
     // no additional worker threads are desired (useful for debugging or profiling)
@@ -4914,6 +4927,52 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     background_process.set_finished_event(EVT_PROCESS_COMPLETED);
     background_process.set_export_began_event(EVT_EXPORT_BEGAN);
     background_process.set_export_finished_event(EVT_EXPORT_FINISHED);
+
+    // Initialize HTTP API for remote slicing control
+#if SLIC3R_HAS_HTTPLIB
+    try {
+        HttpApiConfig http_config;
+        http_config.port = 8080;
+        http_config.bind_address = "0.0.0.0";
+        http_config.enable_cors = true;
+        http_api = std::make_shared<HttpSlicerApi>(http_config, &background_process);
+        if (http_api->start()) {
+            BOOST_LOG_TRIVIAL(info) << "HTTP Slicer API started on port " << http_config.port;
+        } else {
+            BOOST_LOG_TRIVIAL(warning) << "Failed to start HTTP Slicer API";
+        }
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "HTTP API initialization failed: " << e.what();
+        http_api.reset();
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "HTTP API initialization failed with unknown error";
+        http_api.reset();
+    }
+#endif
+
+    // Initialize MQTT for publishing slicing events
+#if SLIC3R_HAS_MOSQUITTO
+    try {
+        MqttConfig mqtt_config;
+        mqtt_config.broker_host = "localhost";  // TODO: make configurable
+        mqtt_config.broker_port = 1883;
+        mqtt_config.client_id = "corvusprint-slicer";
+        mqtt_config.topic_prefix = "slicer/";
+        mqtt_sink = std::make_shared<MqttEventSink>(mqtt_config);
+        if (mqtt_sink->connect()) {
+            BOOST_LOG_TRIVIAL(info) << "MQTT connected to " << mqtt_config.broker_host << ":" << mqtt_config.broker_port;
+        } else {
+            BOOST_LOG_TRIVIAL(warning) << "Failed to connect MQTT to " << mqtt_config.broker_host;
+        }
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "MQTT initialization failed: " << e.what();
+        mqtt_sink.reset();
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "MQTT initialization failed with unknown error";
+        mqtt_sink.reset();
+    }
+#endif
+
     this->q->Bind(EVT_SLICING_UPDATE, &priv::on_slicing_update, this);
     this->q->Bind(EVT_PUBLISH, &priv::on_action_publish, this);
     this->q->Bind(EVT_REPAIR_MODEL, &priv::on_repair_model, this);
@@ -5401,6 +5460,22 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
 
 Plater::priv::~priv()
 {
+    // Stop HTTP API server
+#if SLIC3R_HAS_HTTPLIB
+    if (http_api) {
+        http_api->stop();
+        http_api.reset();
+    }
+#endif
+
+    // Disconnect MQTT
+#if SLIC3R_HAS_MOSQUITTO
+    if (mqtt_sink) {
+        mqtt_sink->disconnect();
+        mqtt_sink.reset();
+    }
+#endif
+
     if (config != nullptr)
         delete config;
     // Saves the database of visited (already shown) hints into hints.ini.
@@ -9276,6 +9351,21 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
 void Plater::priv::on_slicing_update(SlicingStatusEvent &evt)
 {
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": event_type %1%, percent %2%, text %3%") % evt.GetEventType() % evt.status.percent % evt.status.text;
+
+    // Forward to MQTT sink
+#if SLIC3R_HAS_MOSQUITTO
+    if (mqtt_sink && mqtt_sink->is_connected()) {
+        mqtt_sink->on_slicing_update(evt.status);
+    }
+#endif
+
+    // Forward to HTTP API
+#if SLIC3R_HAS_HTTPLIB
+    if (http_api) {
+        http_api->update_status(evt.status);
+    }
+#endif
+
     //BBS: add slice project logic
     std::string title_text = _u8L("Slicing");
     if (evt.status.is_helio) {
@@ -9477,6 +9567,46 @@ bool Plater::priv::warnings_dialog()
 void Plater::priv::on_process_completed(SlicingProcessCompletedEvent &evt)
 {
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": enter, m_ignore_event %1%, status %2%")%m_ignore_event %evt.status();
+
+    // Forward to MQTT sink
+#if SLIC3R_HAS_MOSQUITTO
+    if (mqtt_sink && mqtt_sink->is_connected()) {
+        SlicingCompletedInfo info;
+        switch (evt.status()) {
+            case SlicingProcessCompletedEvent::Finished:  info.status = SlicingCompletedInfo::Finished; break;
+            case SlicingProcessCompletedEvent::Cancelled: info.status = SlicingCompletedInfo::Cancelled; break;
+            case SlicingProcessCompletedEvent::Error:     info.status = SlicingCompletedInfo::Error; break;
+        }
+        // Only access error details when there actually is an error
+        if (evt.error()) {
+            auto [msg, ids] = evt.format_error_message();
+            info.error_message = msg;
+            info.error_object_ids = ids;
+            info.critical_error = evt.critical_error();
+            info.invalidate_plater = evt.invalidate_plater();
+        }
+        mqtt_sink->on_process_finished(info);
+    }
+#endif
+
+    // Forward to HTTP API
+#if SLIC3R_HAS_HTTPLIB
+    if (http_api) {
+        SlicingCompletedInfo info;
+        switch (evt.status()) {
+            case SlicingProcessCompletedEvent::Finished:  info.status = SlicingCompletedInfo::Finished; break;
+            case SlicingProcessCompletedEvent::Cancelled: info.status = SlicingCompletedInfo::Cancelled; break;
+            case SlicingProcessCompletedEvent::Error:     info.status = SlicingCompletedInfo::Error; break;
+        }
+        // Only access error details when there actually is an error
+        if (evt.error()) {
+            auto [msg, ids] = evt.format_error_message();
+            info.error_message = msg;
+        }
+        http_api->update_completed(info);
+    }
+#endif
+
     //BBS:ignore cancel event for some special case
     if (m_ignore_event)
     {

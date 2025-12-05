@@ -290,6 +290,9 @@ set(lisbslic3r_sources
     PrintApply.cpp
     PrintBase.cpp
     PrintBase.hpp
+    SlicingEvents.hpp
+    SlicingEventDispatcher.hpp
+    ConfigChangeDispatcher.hpp
     PrintConfig.cpp
     PrintConfig.hpp
     PrintObject.cpp

@@ -43,6 +43,7 @@ option(DEP_BUILD_GLFW "Compile GLFW" ON)
 option(DEP_BUILD_FREETYPE "Compile freetype" ON)
 option(DEP_BUILD_WXWIDGETS "Compile wxWidgets" ON)
 option(DEP_BUILD_FFMPEG "Compile ffmpeg" ON)
+option(DEP_BUILD_MOSQUITTO "Compile libmosquitto MQTT client" ON)
 
 set(DESTDIR "${CMAKE_CURRENT_BINARY_DIR}/destdir" CACHE PATH "Destination directory")
 set(DEP_DOWNLOAD_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE PATH "Path for downloaded source packages.")
@@ -251,6 +252,11 @@ if (NOT CURL_FOUND)
     include(CURL/CURL.cmake)
     set(CURL_PKG dep_CURL)
 endif ()
+set(MOSQUITTO_PKG "")
+if (DEP_BUILD_MOSQUITTO)
+    include(Mosquitto/Mosquitto.cmake)
+    set(MOSQUITTO_PKG dep_Mosquitto)
+endif ()
 set(WXWIDGETS_PKG "")
 if (DEP_BUILD_WXWIDGETS)
     include(wxWidgets/wxWidgets.cmake)
@@ -273,6 +279,7 @@ set(_dep_list
     ${BOOST_PKG}
     dep_TBB
     ${CURL_PKG}
+    ${MOSQUITTO_PKG}
     ${WXWIDGETS_PKG}
     dep_Cereal
     dep_NLopt

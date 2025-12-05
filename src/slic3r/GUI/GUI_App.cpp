@@ -1,6 +1,7 @@
 #include "libslic3r/Technologies.hpp"
 #include "GUI_App.hpp"
 #include "GUI_Init.hpp"
+#include "Studio.hpp"
 #include "GUI_ObjectList.hpp"
 #include "GUI_Factories.hpp"
 #include "slic3r/GUI/UserManager.hpp"
@@ -3173,6 +3174,15 @@ bool GUI_App::on_init_inner()
         plater_->get_partplate_list().set_filament_count(preset_bundle->filament_presets.size());
     }
 
+    // Set preset_bundle in Studio singleton and publish full config
+    if (Studio::is_initialized()) {
+        Studio::instance().set_preset_bundle(preset_bundle);
+#if SLIC3R_HAS_MOSQUITTO
+        // Publish full config after presets are loaded
+        Studio::instance().publish_full_config();
+#endif
+    }
+
     // BBS:
 #ifdef __WINDOWS__
     mainframe->topbar()->SaveNormalRect();
@@ -3440,6 +3450,13 @@ __retry:
 
         if (!m_user_manager)
             m_user_manager = new Slic3r::UserManager();
+    }
+
+    // Initialize MQTT via Studio singleton
+    if (Studio::is_initialized()) {
+#if SLIC3R_HAS_MOSQUITTO
+        Studio::instance().init_mqtt("localhost", 1883, "corvusprint-config");
+#endif
     }
 
     return true;

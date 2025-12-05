@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT WebSocket Test</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .message {
+            background-color: #f0f0f0;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        input {
+            padding: 8px;
+            margin: 5px;
+            width: 200px;
+        }
+        #log {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 20px 0;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>MQTT WebSocket Test - Port 9001</h1>
+    
+    <div id="status" class="status disconnected">
+        Status: Disconnected
+    </div>
+    
+    <div>
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <h3>Publish Message</h3>
+        <input type="text" id="topic" placeholder="Topic" value="test/topic">
+        <input type="text" id="message" placeholder="Message" value="Hello MQTT">
+        <button onclick="publish()">Publish</button>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <h3>Subscribe to Topic</h3>
+        <input type="text" id="subscribeTopic" placeholder="Topic to subscribe" value="test/+">
+        <button onclick="subscribe()">Subscribe</button>
+    </div>
+    
+    <h3>Message Log</h3>
+    <div id="log"></div>
+    
+    <script>
+        let client = null;
+        
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = 'message';
+            div.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.className = 'status connected';
+                status.textContent = 'Status: Connected';
+            } else {
+                status.className = 'status disconnected';
+                status.textContent = 'Status: Disconnected';
+            }
+        }
+        
+        function connect() {
+            if (client && client.connected) {
+                addLog('Already connected');
+                return;
+            }
+            
+            // WebSocket connection to Mosquitto on port 9001
+            const url = 'ws://localhost:9001';
+            const options = {
+                clientId: 'web_client_' + Math.random().toString(16).substr(2, 8),
+                clean: true,
+                reconnectPeriod: 1000,
+            };
+            
+            addLog(`Connecting to ${url}...`);
+            client = mqtt.connect(url, options);
+            
+            client.on('connect', () => {
+                addLog('Connected successfully!');
+                updateStatus(true);
+                // Auto-subscribe to a default topic
+                client.subscribe('#', (err) => {
+                    if (!err) {
+                        addLog('Subscribed to all topics (#)');
+                    }
+                });
+            });
+            
+            client.on('message', (topic, message) => {
+                addLog(`Received on [${topic}]: ${message.toString()}`);
+            });
+            
+            client.on('error', (error) => {
+                addLog(`Error: ${error}`, 'error');
+                updateStatus(false);
+            });
+            
+            client.on('close', () => {
+                addLog('Connection closed');
+                updateStatus(false);
+            });
+        }
+        
+        function disconnect() {
+            if (client) {
+                client.end();
+                addLog('Disconnected');
+                updateStatus(false);
+            }
+        }
+        
+        function publish() {
+            if (!client || !client.connected) {
+                addLog('Not connected. Please connect first.');
+                return;
+            }
+            
+            const topic = document.getElementById('topic').value;
+            const message = document.getElementById('message').value;
+            
+            client.publish(topic, message, (err) => {
+                if (!err) {
+                    addLog(`Published to [${topic}]: ${message}`);
+                } else {
+                    addLog(`Failed to publish: ${err}`, 'error');
+                }
+            });
+        }
+        
+        function subscribe() {
+            if (!client || !client.connected) {
+                addLog('Not connected. Please connect first.');
+                return;
+            }
+            
+            const topic = document.getElementById('subscribeTopic').value;
+            
+            client.subscribe(topic, (err) => {
+                if (!err) {
+                    addLog(`Subscribed to [${topic}]`);
+                } else {
+                    addLog(`Failed to subscribe: ${err}`, 'error');
+                }
+            });
+        }
+        
+        // Auto-connect on page load
+        window.onload = () => {
+            setTimeout(connect, 500);
+        };
+    </script>
+</body>
+</html>

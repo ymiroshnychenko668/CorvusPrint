@@ -4,6 +4,7 @@
 #include "I18N.hpp"
 
 #include "libslic3r/LocalesUtils.hpp"
+#include "libslic3r/ConfigChangeDispatcher.hpp"
 #ifdef __APPLE__
 #include "slic3r/Utils/MacDarkMode.hpp"
 #endif
@@ -226,6 +227,11 @@ void change_opt_value(DynamicPrintConfig& config, const t_config_option_key& opt
 			break;
 		default:
 			break;
+		}
+
+		// Notify config change dispatcher (for MQTT publishing, etc.)
+		if (ConfigChangeDispatcher::instance().is_enabled()) {
+			ConfigChangeDispatcher::instance().notify(opt_key, value);
 		}
 	}
 	catch (const std::exception &e)

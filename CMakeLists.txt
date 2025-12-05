@@ -448,6 +448,9 @@ else()
 find_package(CURL REQUIRED)
 endif()
 
+# Find Mosquitto MQTT client library
+find_package(Mosquitto REQUIRED)
+
 add_library(libcurl INTERFACE)
 target_link_libraries(libcurl INTERFACE CURL::libcurl)
 
