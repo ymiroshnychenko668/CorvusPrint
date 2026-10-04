@@ -21,10 +21,10 @@ namespace Slic3r {
 #define BAMBU_SOURCE_LIBRARY "BambuSource"
 
 #if defined(_MSC_VER) || defined(_WIN32)
-static HMODULE netwoking_module = NULL;
+static HMODULE networking_module = NULL;
 static HMODULE source_module = NULL;
 #else
-static void* netwoking_module = NULL;
+static void* networking_module = NULL;
 static void* source_module = NULL;
 #endif
 
@@ -101,6 +101,11 @@ func_get_my_message                 NetworkAgent::get_my_message_ptr = nullptr;
 func_check_user_task_report         NetworkAgent::check_user_task_report_ptr = nullptr;
 func_get_user_print_info            NetworkAgent::get_user_print_info_ptr = nullptr;
 func_get_user_tasks                 NetworkAgent::get_user_tasks_ptr = nullptr;
+func_get_filament_spools            NetworkAgent::get_filament_spools_ptr = nullptr;
+func_create_filament_spool          NetworkAgent::create_filament_spool_ptr = nullptr;
+func_update_filament_spool          NetworkAgent::update_filament_spool_ptr = nullptr;
+func_delete_filament_spools         NetworkAgent::delete_filament_spools_ptr = nullptr;
+func_get_filament_config            NetworkAgent::get_filament_config_ptr = nullptr;
 func_get_printer_firmware           NetworkAgent::get_printer_firmware_ptr = nullptr;
 func_get_task_plate_index           NetworkAgent::get_task_plate_index_ptr = nullptr;
 func_get_user_info                  NetworkAgent::get_user_info_ptr = nullptr;
@@ -132,6 +137,12 @@ func_get_model_mall_rating_result   NetworkAgent::get_model_mall_rating_result_p
 
 func_get_mw_user_preference         NetworkAgent::get_mw_user_preference_ptr = nullptr;
 func_get_mw_user_4ulist             NetworkAgent::get_mw_user_4ulist_ptr     = nullptr;
+func_get_hms_snapshot               NetworkAgent::get_hms_snapshot_ptr       = nullptr;
+func_sync_ams_filaments             NetworkAgent::sync_ams_filaments_ptr     = nullptr;
+func_sync_slot_mappings             NetworkAgent::sync_slot_mappings_ptr     = nullptr;
+func_get_soft_match_pending         NetworkAgent::get_soft_match_pending_ptr  = nullptr;
+func_post_soft_match_pending        NetworkAgent::post_soft_match_pending_ptr = nullptr;
+func_post_device_region             NetworkAgent::post_device_region_ptr       = nullptr;
 
 NetworkAgent::NetworkAgent(std::string log_dir)
 {
@@ -204,15 +215,15 @@ int NetworkAgent::initialize_network_module(bool using_backup, bool validate_cer
         module_cert_summary = SummarizeModule(library);
         if (module_cert_summary) {
             if (IsSamePublisher(*self_cert_summary, *module_cert_summary))
-                netwoking_module = LoadLibrary(lib_wstr);
+                networking_module = LoadLibrary(lib_wstr);
             else
                 BOOST_LOG_TRIVIAL(info) << "module is from another publisher:" << module_cert_summary->as_print();
         }
         else
             BOOST_LOG_TRIVIAL(info) << "module_cert is null";
     } else
-        netwoking_module = LoadLibrary(lib_wstr);
-    if (!netwoking_module) {
+        networking_module = LoadLibrary(lib_wstr);
+    if (!networking_module) {
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", try load library directly from current directory");
 
         std::string library_path = get_libpath_in_current_directory(std::string(BAMBU_NETWORK_LIBRARY));
@@ -226,7 +237,7 @@ int NetworkAgent::initialize_network_module(bool using_backup, bool validate_cer
             module_cert_summary = SummarizeModule(library_path);
             if (module_cert_summary) {
                 if (IsSamePublisher(*self_cert_summary, *module_cert_summary))
-                    netwoking_module = LoadLibrary(lib_wstr);
+                    networking_module = LoadLibrary(lib_wstr);
                 else
                     BOOST_LOG_TRIVIAL(info) << "module is from another publisher:" << module_cert_summary->as_print();
             }
@@ -234,7 +245,7 @@ int NetworkAgent::initialize_network_module(bool using_backup, bool validate_cer
                 BOOST_LOG_TRIVIAL(info) << "module_cert is null";
         }
         else
-            netwoking_module = LoadLibrary(lib_wstr);
+            networking_module = LoadLibrary(lib_wstr);
     }
 #else
     #if defined(__WXMAC__)
@@ -248,7 +259,7 @@ int NetworkAgent::initialize_network_module(bool using_backup, bool validate_cer
         module_cert_summary = SummarizeModule(library);
         if (module_cert_summary) {
             if (IsSamePublisher(*self_cert_summary, *module_cert_summary))
-                netwoking_module = dlopen(library.c_str(), RTLD_LAZY);
+                networking_module = dlopen(library.c_str(), RTLD_LAZY);
             else
                 BOOST_LOG_TRIVIAL(info) << "module is from another publisher:" << module_cert_summary->as_print();
         }
@@ -256,23 +267,23 @@ int NetworkAgent::initialize_network_module(bool using_backup, bool validate_cer
             BOOST_LOG_TRIVIAL(info) << "module_cert is null";
     }
     else
-        netwoking_module = dlopen( library.c_str(), RTLD_LAZY);
-    if (!netwoking_module) {
+        networking_module = dlopen( library.c_str(), RTLD_LAZY);
+    if (!networking_module) {
         char* dll_error = dlerror();
         std::string err       = dll_error ? std::string(dll_error) : std::string("(null)");
         BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(", error, dlerror is %1%") % err;
     }
-    printf("after dlopen, network_module is %p\n", netwoking_module);
+    BOOST_LOG_TRIVIAL(info) << boost::format("after dlopen, network_module is %1%") % networking_module;
 #endif
 
-    if (!netwoking_module) {
+    if (!networking_module) {
         BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(", line %1%, can not Load Library, using_backup %2%\n")%__LINE__ %using_backup;
         return -1;
     }
-    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", line %1%,  successfully loaded library, using_backup %2%, module %3%")%__LINE__ %using_backup %netwoking_module;
+    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", line %1%,  successfully loaded library, using_backup %2%, module %3%")%__LINE__ %using_backup %networking_module;
 
     // load file transfer interface
-    InitFTModule(netwoking_module);
+    InitFTModule(networking_module);
 
     //load the functions
     check_debug_consistent_ptr        =  reinterpret_cast<func_check_debug_consistent>(get_network_function("bambu_network_check_debug_consistent"));
@@ -347,6 +358,11 @@ int NetworkAgent::initialize_network_module(bool using_backup, bool validate_cer
     check_user_task_report_ptr        =  reinterpret_cast<func_check_user_task_report>(get_network_function("bambu_network_check_user_task_report"));
     get_user_print_info_ptr           =  reinterpret_cast<func_get_user_print_info>(get_network_function("bambu_network_get_user_print_info"));
     get_user_tasks_ptr                =  reinterpret_cast<func_get_user_tasks>(get_network_function("bambu_network_get_user_tasks"));
+    get_filament_spools_ptr           =  reinterpret_cast<func_get_filament_spools>(get_network_function("bambu_network_get_filament_spools"));
+    create_filament_spool_ptr         =  reinterpret_cast<func_create_filament_spool>(get_network_function("bambu_network_create_filament_spool"));
+    update_filament_spool_ptr         =  reinterpret_cast<func_update_filament_spool>(get_network_function("bambu_network_update_filament_spool"));
+    delete_filament_spools_ptr        =  reinterpret_cast<func_delete_filament_spools>(get_network_function("bambu_network_delete_filament_spools"));
+    get_filament_config_ptr           =  reinterpret_cast<func_get_filament_config>(get_network_function("bambu_network_get_filament_config"));
     get_printer_firmware_ptr          =  reinterpret_cast<func_get_printer_firmware>(get_network_function("bambu_network_get_printer_firmware"));
     get_task_plate_index_ptr          =  reinterpret_cast<func_get_task_plate_index>(get_network_function("bambu_network_get_task_plate_index"));
     get_user_info_ptr                 =  reinterpret_cast<func_get_user_info>(get_network_function("bambu_network_get_user_info"));
@@ -378,27 +394,33 @@ int NetworkAgent::initialize_network_module(bool using_backup, bool validate_cer
 
     get_mw_user_preference_ptr = reinterpret_cast<func_get_mw_user_preference>(get_network_function("bambu_network_get_mw_user_preference"));
     get_mw_user_4ulist_ptr     = reinterpret_cast<func_get_mw_user_4ulist>(get_network_function("bambu_network_get_mw_user_4ulist"));
+    get_hms_snapshot_ptr       = reinterpret_cast<func_get_hms_snapshot>(get_network_function("bambu_network_get_hms_snapshot"));
+    sync_ams_filaments_ptr     = reinterpret_cast<func_sync_ams_filaments>(get_network_function("bambu_network_sync_ams_filaments"));
+    sync_slot_mappings_ptr         = reinterpret_cast<func_sync_slot_mappings>(get_network_function("bambu_network_sync_slot_mappings"));
+    get_soft_match_pending_ptr     = reinterpret_cast<func_get_soft_match_pending>(get_network_function("bambu_network_get_soft_match_pending"));
+    post_soft_match_pending_ptr    = reinterpret_cast<func_post_soft_match_pending>(get_network_function("bambu_network_post_soft_match_pending"));
+    post_device_region_ptr         = reinterpret_cast<func_post_device_region>(get_network_function("bambu_network_post_device_region"));
 
     return 0;
 }
 
 int NetworkAgent::unload_network_module()
 {
-    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", network module %1%")%netwoking_module;
+    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", network module %1%")%networking_module;
     UnloadFTModule();
 #if defined(_MSC_VER) || defined(_WIN32)
-    if (netwoking_module) {
-        FreeLibrary(netwoking_module);
-        netwoking_module = NULL;
+    if (networking_module) {
+        FreeLibrary(networking_module);
+        networking_module = NULL;
     }
     if (source_module) {
         FreeLibrary(source_module);
         source_module = NULL;
     }
 #else
-    if (netwoking_module) {
-        dlclose(netwoking_module);
-        netwoking_module = NULL;
+    if (networking_module) {
+        dlclose(networking_module);
+        networking_module = NULL;
     }
     if (source_module) {
         dlclose(source_module);
@@ -471,6 +493,11 @@ int NetworkAgent::unload_network_module()
     check_user_task_report_ptr        =  nullptr;
     get_user_print_info_ptr           =  nullptr;
     get_user_tasks_ptr                =  nullptr;
+    get_filament_spools_ptr           =  nullptr;
+    create_filament_spool_ptr         =  nullptr;
+    update_filament_spool_ptr         =  nullptr;
+    delete_filament_spools_ptr        =  nullptr;
+    get_filament_config_ptr           =  nullptr;
     get_printer_firmware_ptr          =  nullptr;
     get_task_plate_index_ptr          =  nullptr;
     get_user_info_ptr                 =  nullptr;
@@ -501,6 +528,11 @@ int NetworkAgent::unload_network_module()
 
     get_mw_user_preference_ptr        = nullptr;
     get_mw_user_4ulist_ptr            = nullptr;
+    sync_ams_filaments_ptr            = nullptr;
+    sync_slot_mappings_ptr            = nullptr;
+    get_soft_match_pending_ptr        = nullptr;
+    post_soft_match_pending_ptr       = nullptr;
+    post_device_region_ptr            = nullptr;
 
     return 0;
 }
@@ -511,7 +543,7 @@ HMODULE NetworkAgent::get_bambu_source_entry()
 void* NetworkAgent::get_bambu_source_entry()
 #endif
 {
-    if ((source_module) || (!netwoking_module))
+    if ((source_module) || (!networking_module))
         return source_module;
 
     //int ret = -1;
@@ -563,13 +595,13 @@ void* NetworkAgent::get_network_function(const char* name)
 {
     void* function = nullptr;
 
-    if (!netwoking_module)
+    if (!networking_module)
         return function;
 
 #if defined(_MSC_VER) || defined(_WIN32)
-    function = GetProcAddress(netwoking_module, name);
+    function = GetProcAddress(networking_module, name);
 #else
-    function = dlsym(netwoking_module, name);
+    function = dlsym(networking_module, name);
 #endif
 
     if (!function) {
@@ -1084,11 +1116,11 @@ int NetworkAgent::set_server_callback(OnServerErrFn fn)
     return ret;
 }
 
-int NetworkAgent::bind(std::string dev_ip, std::string dev_id, std::string sec_link, std::string timezone,  bool improved, OnUpdateStatusFn update_fn)
+int NetworkAgent::bind(std::string dev_ip, std::string dev_id, std::string dev_model, std::string sec_link, std::string timezone,  bool improved, OnUpdateStatusFn update_fn)
 {
     int ret = 0;
     if (network_agent && bind_ptr) {
-        ret = bind_ptr(network_agent, dev_ip, dev_id, sec_link, timezone, improved, update_fn);
+        ret = bind_ptr(network_agent, dev_ip, dev_id, dev_model, sec_link, timezone, improved, update_fn);
         if (ret)
             BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%, dev_ip=%3%, timezone=%4%") %network_agent %ret %BBLCrossTalk::Crosstalk_DevIP(dev_ip) %timezone;
     }
@@ -1168,10 +1200,12 @@ int NetworkAgent::start_send_gcode_to_sdcard(PrintParams params, OnUpdateStatusF
 
 int NetworkAgent::start_local_print(PrintParams params, OnUpdateStatusFn update_fn, WasCancelledFn cancel_fn)
 {
-    int ret = 0;
+    int ret = BAMBU_NETWORK_ERR_INVALID_HANDLE;
     if (network_agent && start_local_print_ptr) {
         ret = start_local_print_ptr(network_agent, params, update_fn, cancel_fn);
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%, dev_id=%3%, task_name=%4%, project_name=%5%") %network_agent %ret %BBLCrossTalk::Crosstalk_DevId(params.dev_id) %params.task_name %params.project_name;
+    } else {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" invalid handle: network_agent=%1%, start_local_print_ptr=%2%, dev_id=%3%") % network_agent % start_local_print_ptr % BBLCrossTalk::Crosstalk_DevId(params.dev_id);
     }
     return ret;
 }
@@ -1312,6 +1346,66 @@ int NetworkAgent::get_user_tasks(TaskQueryParams params, std::string* http_body)
     return ret;
 }
 
+int NetworkAgent::get_filament_spools(FilamentQueryParams params, std::string* http_body)
+{
+    if (!network_agent || !get_filament_spools_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)get_filament_spools_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = get_filament_spools_ptr(network_agent, params, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") %network_agent %ret;
+    return ret;
+}
+
+int NetworkAgent::create_filament_spool(std::string request_body, std::string* http_body)
+{
+    if (!network_agent || !create_filament_spool_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)create_filament_spool_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = create_filament_spool_ptr(network_agent, request_body, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") %network_agent %ret;
+    return ret;
+}
+
+int NetworkAgent::update_filament_spool(std::string spool_id, std::string request_body, std::string* http_body)
+{
+    if (!network_agent || !update_filament_spool_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)update_filament_spool_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = update_filament_spool_ptr(network_agent, spool_id, request_body, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%, spool_id=%3%") %network_agent %ret %spool_id;
+    return ret;
+}
+
+int NetworkAgent::delete_filament_spools(FilamentDeleteParams params, std::string* http_body)
+{
+    if (!network_agent || !delete_filament_spools_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)delete_filament_spools_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = delete_filament_spools_ptr(network_agent, params, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") %network_agent %ret;
+    return ret;
+}
+
+int NetworkAgent::get_filament_config(std::string* http_body)
+{
+    if (!network_agent || !get_filament_config_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)get_filament_config_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = get_filament_config_ptr(network_agent, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") %network_agent %ret;
+    return ret;
+}
+
 int NetworkAgent::get_printer_firmware(std::string dev_id, unsigned* http_code, std::string* http_body)
 {
     int ret = 0;
@@ -1449,6 +1543,76 @@ int NetworkAgent::get_mw_user_4ulist(int seed, int limit, std::function<void(std
         ret = get_mw_user_4ulist_ptr(network_agent,seed, limit, callback);
         if (ret) BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%") % network_agent % ret;
     }
+    return ret;
+}
+
+int NetworkAgent::get_hms_snapshot(std::string dev_id, std::string file_name, std::function<void(std::string, int)> callback)
+{
+    int ret = -1;
+    if (network_agent && get_hms_snapshot_ptr) {
+        ret = get_hms_snapshot_ptr(network_agent, dev_id, file_name, callback);
+        if (ret) BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%") % network_agent % ret;
+    }
+    return ret;
+}
+
+int NetworkAgent::sync_ams_filaments(AmsSyncParams params, std::string* http_body)
+{
+    if (!network_agent || !sync_ams_filaments_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)sync_ams_filaments_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = sync_ams_filaments_ptr(network_agent, params, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") % network_agent % ret;
+    return ret;
+}
+
+int NetworkAgent::sync_slot_mappings(SlotMappingsSyncParams params, std::string* http_body)
+{
+    if (!network_agent || !sync_slot_mappings_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)sync_slot_mappings_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = sync_slot_mappings_ptr(network_agent, params, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") % network_agent % ret;
+    return ret;
+}
+
+int NetworkAgent::get_soft_match_pending(SoftMatchPendingParams params, std::string* http_body)
+{
+    if (!network_agent || !get_soft_match_pending_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)get_soft_match_pending_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = get_soft_match_pending_ptr(network_agent, params, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") % network_agent % ret;
+    return ret;
+}
+
+int NetworkAgent::post_soft_match_pending(SoftMatchPendingActionParams params, std::string* http_body)
+{
+    if (!network_agent || !post_soft_match_pending_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)post_soft_match_pending_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = post_soft_match_pending_ptr(network_agent, params, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") % network_agent % ret;
+    return ret;
+}
+
+int NetworkAgent::post_device_region(DeviceRegionParams params, std::string* http_body)
+{
+    if (!network_agent || !post_device_region_ptr) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": unavailable (network_agent="
+            << network_agent << " func_ptr=" << (void*)post_device_region_ptr << ")";
+        return BAMBU_NETWORK_ERR_INVALID_HANDLE;
+    }
+    int ret = post_device_region_ptr(network_agent, params, http_body);
+    BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" : network_agent=%1%, ret=%2%") % network_agent % ret;
     return ret;
 }
 

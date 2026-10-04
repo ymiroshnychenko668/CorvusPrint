@@ -288,7 +288,9 @@ wxGridActivationResult GridCellFilamentsEditor::TryActivate(int row, int col, wx
         wxString choice;
 
         int digital_value = keyCode - '0';
-        if ((digital_value >= 1) && (digital_value <= 9))
+        if (digital_value == 0)
+            m_cached_value = 10;
+        else if ((digital_value >= 1) && (digital_value <= 9))
             m_cached_value = digital_value;
         else
             m_cached_value = -1;
@@ -480,7 +482,9 @@ wxGridActivationResult GridCellChoiceEditor::TryActivate(int row, int col, wxGri
         wxString          choice;
 
         int digital_value = keyCode - '0';
-        if ((digital_value >= 1) && (digital_value <= 9))
+        if (digital_value == 0)
+            m_cached_value = 10;
+        else if ((digital_value >= 1) && (digital_value <= 9))
             m_cached_value = digital_value;
         else
             m_cached_value = -1;
@@ -1386,6 +1390,9 @@ wxString ObjectGridTable::GetValue (int row, int col)
         return wxString::Format("%d", option_value.value);
     }
     else if (grid_col->type == coFloat) {
+        if (auto option_values = dynamic_cast<ConfigOptionFloatsNullable *>(&option)) {
+            return wxString::Format("%.2f", option_values->get_at(0));
+        }
         ConfigOptionFloat& option_value = dynamic_cast<ConfigOptionFloat&>(option);
         return wxString::Format("%.2f", option_value.value);
     }
@@ -1590,14 +1597,24 @@ void ObjectGridTable::SetValue( int row, int col, const wxString& value )
         }
     }
     else if (grid_col->type == coFloat) {
-        ConfigOptionFloat &option_value = dynamic_cast<ConfigOptionFloat &>((*grid_row)[(GridColType)col]);
-        ConfigOptionFloat &option_ori_value = dynamic_cast<ConfigOptionFloat &>((*grid_row)[(GridColType)(col+1)]);
+        if (auto option_values = dynamic_cast<ConfigOptionFloatsNullable *>(&(*grid_row)[(GridColType) col])) {
+            ConfigOptionFloatsNullable &option_ori_values = dynamic_cast<ConfigOptionFloatsNullable &>((*grid_row)[(GridColType) (col + 1)]);
 
-        double  double_value;
-        value.ToDouble(&double_value);
-        option_value.value = (float)double_value;
+            double  double_value;
+            value.ToDouble(&double_value);
+            option_values->values.at(0) = (float) double_value;
 
-        update_value_to_config(grid_row->config, grid_col->key, option_value, option_ori_value);
+            update_value_to_config(grid_row->config, grid_col->key, *option_values, option_ori_values);
+        } else {
+            ConfigOptionFloat &option_value = dynamic_cast<ConfigOptionFloat &>((*grid_row)[(GridColType)col]);
+            ConfigOptionFloat &option_ori_value = dynamic_cast<ConfigOptionFloat &>((*grid_row)[(GridColType)(col+1)]);
+
+            double  double_value;
+            value.ToDouble(&double_value);
+            option_value.value = (float)double_value;
+
+            update_value_to_config(grid_row->config, grid_col->key, option_value, option_ori_value);
+        }
     }
     else if (grid_col->type == coInt) {
         ConfigOptionInt &option_value = dynamic_cast<ConfigOptionInt &>((*grid_row)[(GridColType)col]);
@@ -2558,6 +2575,8 @@ bool ObjectGridTable::OnCellLeftClick(int row, int col, ConfigOptionType &type)
 void ObjectGridTable::OnSelectCell(int row, int col)
 {
     m_selected_cells.clear();
+    if (!m_panel->m_side_window)
+        return;
     m_panel->m_side_window->Freeze();
     if (row == 0 || col == col_filaments) {
         m_panel->m_object_settings->UpdateAndShow(row, false, false, false, nullptr, nullptr, std::string());

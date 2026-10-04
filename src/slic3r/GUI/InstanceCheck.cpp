@@ -239,7 +239,7 @@ namespace instance_check_internal
 			std::string		interface_name = "com.bambulab.BambuStudio.InstanceCheck.Object" + version;
 			std::string   	method_name = "AnotherInstance";
 			//std::string		object_name = "/com/prusa3d/prusaslicer/InstanceCheck";
-			std::string		object_name = "/com/BambuLab/BambuStudio/InstanceCheck/Object" + version;
+			std::string		object_name = "/com.bambulab/BambuStudio/InstanceCheck/Object" + version;
 
 
 			// initialise the error value
@@ -352,7 +352,7 @@ bool instance_check(int argc, char** argv, bool app_config_single_instance)
 	if (instance_check_internal::get_lock(lock_name + ".lock", data_dir() + "/cache/") && *cla.should_send) {
 #endif
 		instance_check_internal::send_message(cla.cl_string, lock_name);
-		BOOST_LOG_TRIVIAL(error) << "Instance check: Another instance found. This instance will terminate. Lock file of current running instance is located at " << data_dir() <<
+		BOOST_LOG_TRIVIAL(error) << "Instance check: Another instance found. This instance will terminate. Lock file of current running instance is located at " << PathSanitizer::sanitize(data_dir()) <<
 #ifdef _WIN32
 			"\\cache\\"
 #else // mac & linx
@@ -576,7 +576,7 @@ namespace MessageHandlerDBusInternal
 	{
 		const char* interface_name = dbus_message_get_interface(message);
 	    const char* member_name    = dbus_message_get_member(message);
-	    std::string our_interface  = "com.BambuLab.BambuStudio.InstanceCheck.Object" + wxGetApp().get_instance_hash_string();
+	    std::string our_interface  = "com.bambulab.BambuStudio.InstanceCheck.Object" + wxGetApp().get_instance_hash_string();
 	    BOOST_LOG_TRIVIAL(trace) << "DBus message received: interface: " << interface_name << ", member: " << member_name;
 	    if (0 == strcmp("org.freedesktop.DBus.Introspectable", interface_name) && 0 == strcmp("Introspect", member_name)) {
 	        respond_to_introspect(connection, message);
@@ -596,8 +596,8 @@ void OtherInstanceMessageHandler::listen()
     int 				 name_req_val;
     DBusObjectPathVTable vtable;
     std::string 		 instance_hash  = wxGetApp().get_instance_hash_string();
-	std::string			 interface_name = "com.BambuLab.BambuStudio.InstanceCheck.Object" + instance_hash;
-    std::string			 object_name 	= "/com/BambuLab/BambuStudio/InstanceCheck/Object" + instance_hash;
+    std::string			 interface_name = "com.bambulab.BambuStudio.InstanceCheck.Object" + instance_hash;
+    std::string			 object_name 	= "/com.bambulab/BambuStudio/InstanceCheck/Object" + instance_hash;
 
     //BOOST_LOG_TRIVIAL(debug) << "init dbus listen " << interface_name << " " << object_name;
     dbus_error_init(&err);

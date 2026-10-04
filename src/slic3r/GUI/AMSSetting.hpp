@@ -26,6 +26,7 @@ class ComboBox;
 namespace Slic3r { namespace GUI {
 
 class AMSSettingTypePanel;
+class AMSSettingArrangeAMSOrder;
 class AMSSetting : public DPIDialog
 {
 public:
@@ -63,9 +64,10 @@ protected:
 
     bool m_switching = false;
     AMSSettingTypePanel*  m_ams_type;
-    //AMSSettingArrangeAMSOrder* m_ams_arrange_order;
+    AMSSettingArrangeAMSOrder* m_ams_arrange_order;
 
     wxStaticBitmap* m_am_img;
+    wxPanel*        m_panel_img = nullptr;
     std::string     m_ams_img_name;
 
     wxPanel *     m_panel_body;
@@ -129,7 +131,7 @@ private:
     AnimaIcon*      m_switching_icon;
 };
 
-#if 0
+
 class AMSSettingArrangeAMSOrder : public wxPanel
 {
 public:
@@ -137,7 +139,7 @@ public:
 
 public:
     void Update(const MachineObject* obj);
-    void Rescale() { m_btn_rearrange->msw_rescale(); Layout(); };
+    void Rescale() { m_btn_rearrange->Rescale(); Layout(); };
 
 private:
     void CreateGui();
@@ -145,9 +147,8 @@ private:
 
 private:
     std::weak_ptr<DevAmsSystemFirmwareSwitch> m_ams_firmware_switch;
-    ScalableButton* m_btn_rearrange;
+    Button* m_btn_rearrange;
 };
-#endif
 
 }} // namespace Slic3r::GUI
 

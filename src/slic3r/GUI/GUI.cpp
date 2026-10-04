@@ -119,7 +119,7 @@ void change_opt_value(DynamicPrintConfig& config, const t_config_option_key& opt
 		case coFloatOrPercent:{
 			std::string str = boost::any_cast<std::string>(value);
 			bool percent = false;
-			if (str.back() == '%') {
+			if (!str.empty() && str.back() == '%') {
 				str.pop_back();
 				percent = true;
 			}
@@ -129,7 +129,7 @@ void change_opt_value(DynamicPrintConfig& config, const t_config_option_key& opt
 		case coFloatsOrPercents:{
 			std::string str = boost::any_cast<std::string>(value);
 			bool percent = false;
-			if (str.back() == '%') {
+			if (!str.empty() && str.back() == '%') {
 				str.pop_back();
 				percent = true;
 			}
@@ -307,6 +307,7 @@ static void add_config_substitutions(const ConfigSubstitutions& conf_substitutio
 			bool is_infill = def->opt_key == "top_surface_pattern"	   ||
 							 def->opt_key == "bottom_surface_pattern" ||
 							 def->opt_key == "internal_solid_infill_pattern" ||
+							 def->opt_key == "sub_top_surface_pattern" ||
 							 def->opt_key == "sparse_infill_pattern";
 
 			// Each infill doesn't use all list of infill declared in PrintConfig.hpp.
@@ -572,7 +573,7 @@ void desktop_open_datadir_folder()
 #endif
 }
 
-void desktop_open_any_folder( const std::string path )
+void desktop_open_any_folder( const std::string& path )
 {
     // Execute command to open a file explorer, platform dependent.
     // FIXME: The const_casts aren't needed in wxWidgets 3.1, remove them when we upgrade.
@@ -583,7 +584,14 @@ void desktop_open_any_folder( const std::string path )
 #elif __APPLE__
     openFolderForFile(from_u8(path));
 #else
-    const char *argv[] = {"nautilus", path.data(), nullptr};
+
+    // Orca#6449: Open containing dir instead of opening the file directly.
+    std::string new_path = path;
+    boost::filesystem::path p(new_path);
+    if (!fs::is_directory(p)) {
+        new_path = p.parent_path().string();
+    }
+    const char* argv[] = {"xdg-open", new_path.data(), nullptr};
 
     // Check if we're running in an AppImage container, if so, we need to remove AppImage's env vars,
     // because they may mess up the environment expected by the file manager.

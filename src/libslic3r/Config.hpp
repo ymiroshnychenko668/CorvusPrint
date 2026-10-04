@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <map>
+#include <cfloat>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -357,7 +358,7 @@ public:
     virtual void set(const ConfigOption* rhs, size_t start, size_t len) = 0;
     virtual void set_with_restore(const ConfigOptionVectorBase* rhs, std::vector<int>& restore_index, int stride) = 0;
     virtual void set_with_restore_2(const std::string key, const ConfigOptionVectorBase* rhs, std::vector<int>& restore_index, int start, int len, bool skip_error = false) = 0;
-    virtual void set_only_diff(const ConfigOptionVectorBase* rhs, std::vector<int>& diff_index, int stride) = 0;
+    virtual void set_only_diff(const std::string key, const ConfigOptionVectorBase* rhs, std::vector<int>& diff_index, int stride) = 0;
     virtual void set_to_index(const ConfigOptionVectorBase* rhs, std::vector<int>& dest_index, int stride) = 0;
     virtual void set_with_nil(const ConfigOptionVectorBase* rhs, const ConfigOptionVectorBase* inherits, int stride) = 0;
     virtual void set_with_default(const ConfigOptionVectorBase* inherits) = 0;
@@ -502,8 +503,10 @@ public:
 
             for (size_t i = 0; i < restore_index.size(); i++) {
                 if (restore_index[i] != -1) {
-                    for (size_t j = 0; j < stride; j++)
-                        this->values[i * stride +j] = backup_values[restore_index[i] * stride +j];
+                    for (size_t j = 0; j < stride; j++) {
+                        if (restore_index[i] * stride + j < backup_values.size())
+                            this->values[i * stride +j] = backup_values[restore_index[i] * stride +j];
+                    }
                 }
             }
         }
@@ -567,27 +570,30 @@ public:
     //set a item related with extruder variants when loading user config, only set the different value of some extruder
     //rhs: item from user config
     //diff_index: which index in this vector need to be set
-    virtual void set_only_diff(const ConfigOptionVectorBase* rhs, std::vector<int>& diff_index, int stride) override
+    virtual void set_only_diff(const std::string key, const ConfigOptionVectorBase* rhs, std::vector<int>& diff_index, int stride) override
     {
         if (rhs->type() == this->type()) {
             // Assign the first value of the rhs vector.
             auto other = static_cast<const ConfigOptionVector<T>*>(rhs);
 
-            if (this->values.size() != (diff_index.size()*stride))
-                throw ConfigurationError("ConfigOptionVector::set_only_diff(): Assigning from an vector with invalid diff_index size");
+            if (this->values.size() != (diff_index.size() * stride)) {
+                std::string error_message = "ConfigOptionVector::set_only_diff(): Assigning from an vector with invalid diff_index size: key=" + key;
+                throw ConfigurationError(error_message);
+            }
 
             for (size_t i = 0; i < diff_index.size(); i++) {
                 if (diff_index[i] != -1) {
                     for (size_t j = 0; j < stride; j++)
                     {
-                        if (!other->is_nil(diff_index[i] * stride))
+                        if (diff_index[i] * stride + j < other->values.size() && !other->is_nil(diff_index[i] * stride))
                             this->values[i * stride +j] = other->values[diff_index[i] * stride +j];
                     }
                 }
             }
+        } else {
+            std::string error_message = "ConfigOptionVector::set_only_diff(): Assigning an incompatible type: key=" + key;
+            throw ConfigurationError(error_message);
         }
-        else
-            throw ConfigurationError("ConfigOptionVector::set_only_diff(): Assigning an incompatible type");
     }
 
     //set a item related with extruder variants when apply static config with dynamic config
@@ -2243,6 +2249,7 @@ public:
         legend,
         // Vector value, but edited as a single string.
         one_string,
+        multi_variant,
     };
 
 	// Identifier of this option. It is stored here so that it is accessible through the by_serialization_key_ordinal map.
@@ -2381,10 +2388,13 @@ public:
     // Optional width of an input field.
     int                                 width           = -1;
     // <min, max> limit of a numeric input.
-    // If not set, the <min, max> is set to <INT_MIN, INT_MAX>
+    // If not set explicitly, the <min, max> default to <-DBL_MAX, DBL_MAX>, which can be refenced externally
+    // using the static `min_default`/`max_default` members to check if a value was set.
     // By setting min=0, only nonnegative input is allowed.
-    int                                 min = INT_MIN;
-    int                                 max = INT_MAX;
+    static constexpr double             min_default = -DBL_MAX;
+    static constexpr double             max_default = DBL_MAX;
+    double                              min = min_default;
+    double                              max = max_default;
     // To check if it's not a typo and a % is missing
     double                              max_literal = 1;
     ConfigOptionMode                    mode = comSimple;

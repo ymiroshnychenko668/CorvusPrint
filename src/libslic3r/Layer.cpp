@@ -84,22 +84,46 @@ static inline bool layer_needs_raw_backup(const Layer *layer)
 void Layer::backup_untyped_slices()
 {
     if (layer_needs_raw_backup(this)) {
-        for (LayerRegion *layerm : m_regions)
+        for (LayerRegion *layerm : m_regions) {
             layerm->raw_slices = to_expolygons(layerm->slices.surfaces);
+            layerm->raw_counter_circle_compensation.clear();
+            layerm->raw_holes_circle_compensation.clear();
+            for (Surface &surface : layerm->slices.surfaces) {
+                layerm->raw_counter_circle_compensation.push_back(surface.counter_circle_compensation);
+                layerm->raw_holes_circle_compensation.push_back(surface.holes_circle_compensation);
+            }
+        }
     } else {
         assert(m_regions.size() == 1);
         m_regions.front()->raw_slices.clear();
+        m_regions.front()->raw_counter_circle_compensation.clear();
+        m_regions.front()->raw_holes_circle_compensation.clear();
     }
 }
 
 void Layer::restore_untyped_slices()
 {
     if (layer_needs_raw_backup(this)) {
-        for (LayerRegion *layerm : m_regions)
+        for (LayerRegion *layerm : m_regions) {
             layerm->slices.set(layerm->raw_slices, stInternal);
+            int surface_idx = 0;
+            for (Surface &surface : layerm->slices.surfaces) {
+                if (surface_idx < layerm->raw_counter_circle_compensation.size()
+                    && surface_idx < layerm->raw_holes_circle_compensation.size()) {
+                    surface.counter_circle_compensation = layerm->raw_counter_circle_compensation[surface_idx];
+                    surface.holes_circle_compensation   = layerm->raw_holes_circle_compensation[surface_idx];
+                }
+            }
+        }
     } else {
         assert(m_regions.size() == 1);
         m_regions.front()->slices.set(this->lslices, stInternal);
+        if (0 < m_regions.front()->raw_counter_circle_compensation.size()
+            && 0 < m_regions.front()->raw_holes_circle_compensation.size()
+            && 0 < m_regions.front()->slices.surfaces.size()) {
+            m_regions.front()->slices.surfaces.front().counter_circle_compensation = m_regions.front()->raw_counter_circle_compensation.front();
+            m_regions.front()->slices.surfaces.front().holes_circle_compensation   = m_regions.front()->raw_holes_circle_compensation.front();
+        }
     }
 }
 
@@ -151,9 +175,10 @@ bool Layer::has_compatible_layer_regions(const PrintRegionConfig &config, const 
     return config.wall_filament == other_config.wall_filament
            && config.wall_loops == other_config.wall_loops
            && config.wall_sequence == other_config.wall_sequence
-           && config.inner_wall_speed.get_at(get_config_idx_for_filament(config.wall_filament)) == other_config.inner_wall_speed.get_at(get_config_idx_for_filament(config.wall_filament))
-           && config.outer_wall_speed.get_at(get_config_idx_for_filament(config.wall_filament)) == other_config.outer_wall_speed.get_at(get_config_idx_for_filament(config.wall_filament))
-           && config.gap_infill_speed.get_at(get_config_idx_for_filament(config.wall_filament)) == other_config.gap_infill_speed.get_at(get_config_idx_for_filament(config.wall_filament))
+           && config.inner_wall_speed.get_at(get_process_config_idx(config.wall_filament)) == other_config.inner_wall_speed.get_at(get_process_config_idx(config.wall_filament))
+           && config.outer_wall_speed.get_at(get_process_config_idx(config.wall_filament)) == other_config.outer_wall_speed.get_at(get_process_config_idx(config.wall_filament))
+           && config.gap_infill_speed.get_at(get_process_config_idx(config.wall_filament)) == other_config.gap_infill_speed.get_at(get_process_config_idx(config.wall_filament))
+           && config.bridge_speed.get_at(get_process_config_idx(config.wall_filament)) == other_config.bridge_speed.get_at(get_process_config_idx(config.wall_filament))
            && config.detect_overhang_wall == other_config.detect_overhang_wall
            && config.filter_out_gap_fill.value == other_config.filter_out_gap_fill.value
            && config.opt_serialize("inner_wall_line_width") == other_config.opt_serialize("inner_wall_line_width")
@@ -168,7 +193,8 @@ bool Layer::has_compatible_layer_regions(const PrintRegionConfig &config, const 
            && config.seam_slope_conditional == other_config.seam_slope_conditional
            && config.seam_slope_entire_loop == other_config.seam_slope_entire_loop
            && config.seam_slope_steps == other_config.seam_slope_steps
-           && config.seam_slope_inner_walls == other_config.seam_slope_inner_walls;
+           && config.seam_slope_inner_walls == other_config.seam_slope_inner_walls
+           && (this->id() != 0 || config.initial_layer_flow_ratio == other_config.initial_layer_flow_ratio);
 }
 
 // Here the perimeters are created cummulatively for all layer regions sharing the same parameters influencing the perimeters.
@@ -206,6 +232,8 @@ void Layer::make_perimeters()
                 const size_t next_region_id = std::distance(m_regions.cbegin(), it);
                 const PrintRegionConfig &other_config = other_layerm->region().config();
                 if (!has_compatible_layer_regions(config, other_config))
+                    continue;
+                if ((*layerm)->region().gradient_volume_id() != other_layerm->region().gradient_volume_id())
                     continue;
 
                 other_layerm->perimeters.clear();
@@ -574,6 +602,7 @@ coordf_t Layer::get_sparse_infill_max_void_area()
             case ipHilbertCurve:
             case ip3DHoneycomb:
             case ipArchimedeanChords:
+            case ip2DLattice: //this function seems to have been abandoned, there's no anywhere called this
                 max_void_area = std::max(max_void_area, spacing * spacing);
                 break;
             case ipGrid:
@@ -596,15 +625,16 @@ coordf_t Layer::get_sparse_infill_max_void_area()
     return max_void_area;
 }
 
-size_t Layer::get_extruder_id(unsigned int filament_id) const
+size_t Layer::get_filament_config_idx(unsigned int filament_id) const
 {
-    return m_object->print()->get_extruder_id(filament_id);
+    return m_object->print()->get_filament_config_idx(filament_id);
 }
 
-size_t Layer::get_config_idx_for_filament(unsigned int filament_id) const
+size_t Layer::get_process_config_idx(unsigned int filament_id) const
 {
-    return m_object->print()->get_config_idx_for_filament(filament_id);
+    return m_object->print()->get_process_config_idx(filament_id);
 }
+
 
 BoundingBox get_extents(const LayerRegion &layer_region)
 {

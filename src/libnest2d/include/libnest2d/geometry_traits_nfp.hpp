@@ -1,4 +1,4 @@
-#ifndef GEOMETRIES_NOFITPOLYGON_HPP
+﻿#ifndef GEOMETRIES_NOFITPOLYGON_HPP
 #define GEOMETRIES_NOFITPOLYGON_HPP
 
 #include <algorithm>
@@ -227,16 +227,26 @@ template<class RawBox, class RawShape, class Ratio = double> inline NfpResult<Ra
     auto bedMaxx = bed.maxCorner().x();
     auto bedMaxy = bed.maxCorner().y();
 
-    RawShape innerNfp{{bedMinx + leftOffset, bedMaxy + topOffset},
-                      {bedMaxx + rightOffset, bedMaxy + topOffset},
-                      {bedMaxx + rightOffset, bedMiny + bottomOffset},
-                      {bedMinx + leftOffset, bedMiny + bottomOffset},
-                      {bedMinx + leftOffset, bedMaxy + topOffset}};
-    if (sheight > boxHeight || swidth > boxWidth) {
-        return {{}, {0, 0}};
-    } else {
-        return {innerNfp, {0, 0}};
+    auto left   = bedMinx + leftOffset;
+    auto right  = bedMaxx + rightOffset;
+    auto top    = bedMaxy + topOffset;
+    auto bottom = bedMiny + bottomOffset;
+
+    // BBS: sliding larger than bed inverts an axis (left>right or bottom>top),
+    // which would yield a negative-area bowtie escaping calcnfp's degeneracy
+    // checks. Return empty so the caller treats it as "doesn't fit".
+    const auto eps = TCompute<RawShape>(1);
+    if (left > right + eps || bottom > top + eps) {
+        return {RawShape{}, {0, 0}};
     }
+
+    RawShape innerNfp{{left, top},
+                      {right, top},
+                      {right, bottom},
+                      {left, bottom},
+                      {left, top}};
+
+    return {innerNfp, {0, 0}};
 }
 
 /**

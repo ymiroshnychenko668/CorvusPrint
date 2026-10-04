@@ -212,10 +212,10 @@ std::string MqttConfigPublisher::serialize_value(const std::string& opt_key, con
             json << ",\"unit\":\"" << json_escape(opt_def->sidetext) << "\"";
         }
 
-        if (opt_def->min != INT_MIN && opt_def->min != -FLT_MAX) {
+        if (opt_def->min != ConfigOptionDef::min_default) {
             json << ",\"min\":" << opt_def->min;
         }
-        if (opt_def->max != INT_MAX && opt_def->max != FLT_MAX) {
+        if (opt_def->max != ConfigOptionDef::max_default) {
             json << ",\"max\":" << opt_def->max;
         }
 

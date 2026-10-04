@@ -1,4 +1,4 @@
-#include "Arrange.hpp"
+﻿#include "Arrange.hpp"
 #include "Print.hpp"
 #include "BoundingBox.hpp"
 
@@ -96,6 +96,18 @@ void update_arrange_params(ArrangeParams& params, const DynamicPrintConfig & pri
         }
         else
             params.min_obj_distance = std::max(params.min_obj_distance, scaled(params.cleareance_radius + 0.001)); // +0.001mm to avoid clearance check fail due to rounding error
+
+        // Add per-object skirt expansion on top of clearance-based distance.
+        float skirt_extra = params.brim_skirt_distance;
+        if (skirt_extra > 0) {
+            // Two constraints:
+            //   1) print-head clearance when nozzle is at skirt edge: gap >= clearance + skirt_extra
+            //   2) prevent skirt line overlap on the bed:             gap >= 2 * skirt_extra
+            // Ensuring base >= skirt_extra before adding it satisfies both:
+            //   result = max(clearance, skirt_extra) + skirt_extra
+            params.min_obj_distance = std::max(params.min_obj_distance, scaled(skirt_extra + 0.001));
+            params.min_obj_distance += scaled(skirt_extra + 0.001);
+        }
     }
 }
 
@@ -114,6 +126,11 @@ void update_selected_items_inflation(ArrangePolygons& selected, const DynamicPri
         // 2. if there is an object with tree support, all objects use the max tree branch radius (brim_max=branch diameter)
         // 3. otherwise, use each object's own brim width
         ap.inflation = params.min_obj_distance != 0 ? params.min_obj_distance / 2 : params.plate_has_tree_support ? scaled(params.brim_max / 2) : scaled(ap.brim_width);
+        // STUDIO: 调用方可通过 params.min_inflation_floor 显式要求"最小可见间隙"。
+        // 仅在自动档位（用户没显式设 min_obj_distance）下生效，避免污染显式间距语义。
+        // 默认 0 = 关闭，保持各 arrange 路径的旧行为；FillBedJob 会在调用前主动设置。
+        if (params.min_obj_distance == 0 && params.min_inflation_floor > 0)
+            ap.inflation = std::max(ap.inflation, params.min_inflation_floor);
         });
     params.brim_skirt_distance = std::max(params.brim_skirt_distance, float(params.brim_max));
 }
@@ -325,8 +342,9 @@ protected:
         double bindist = 0;
         if (starting_point_alignment == PConfig::Alignment::BOTTOM_LEFT)
             bindist = norm(pl::distance(ibb.minCorner(), origin_pack));
-        else if (starting_point_alignment == PConfig::Alignment::TOP_RIGHT)
+        else if (starting_point_alignment == PConfig::Alignment::TOP_RIGHT) {
             bindist = norm(pl::distance(ibb.maxCorner(), origin_pack));
+        }
         else
             bindist = norm(pl::distance(ibb.center(), origin_pack));
         return bindist;
@@ -414,9 +432,7 @@ protected:
                 score = 0.2 * dist + 0.8 * bindist;
             }
             else {
-                double bindist = dist_to_bin(ibb, origin_pack, m_pconf.starting_point);
-                dist = 0.8 * dist + 0.2 * bindist;
-
+                dist = dist_to_bin(ibb, origin_pack, m_pconf.starting_point);
 
                 // Prepare a variable for the alignment score.
                 // This will indicate: how well is the candidate item
@@ -539,24 +555,38 @@ protected:
             score += lambda4 * hasRowHeightConflict + lambda4 * hasLidHeightConflict;
         }
         else {
-            int valid_items_cnt = 0;
+            // 高度接近的件尽量摆到一起
             double height_score = 0;
+            constexpr double height_weight = 0.1;
+
+            auto query = bgi::intersects(ibb);
+            auto& index = isBig(item.area()) ? spatindex : smalls_spatindex;
+            std::vector<SpatElement> result;
+            result.reserve(index.size());
+            index.query(query, std::back_inserter(result));
+
+            for (auto& e : result) {
+                auto idx = e.second;
+                Item& p = m_items[idx];
+                height_score += std::abs(item.height - p.height) / params.printable_height * norm(pl::distance(ibb.center(), p.boundingBox().center()));
+            }
+
+            if (result.size() > 0) {
+                height_score /= result.size();
+                score = (1 - height_weight) * score + height_weight * height_score;
+            }
+
+            // 耗材类型检查
             for (int i = 0; i < m_items.size(); i++) {
                 Item& p = m_items[i];
-                if (!p.is_virt_object) {
-                    valid_items_cnt++;
-                    // 高度接近的件尽量摆到一起
-                    height_score += (1- std::abs(item.height - p.height) / params.printable_height)
-                        * norm(pl::distance(ibb.center(), p.boundingBox().center()));
-                    //score += LARGE_COST_TO_REJECT * (item.bed_temp - p.bed_temp != 0);
-                    if (!Print::is_filaments_compatible({ item.filament_temp_type,p.filament_temp_type })) {
-                        score += LARGE_COST_TO_REJECT;
-                        break;
-                    }
+                if (p.is_virt_object) {
+                    continue;
+                }
+                if (!Print::is_filaments_compatible({ item.filament_temp_type,p.filament_temp_type })) {
+                    score += LARGE_COST_TO_REJECT;
+                    break;
                 }
             }
-            if (valid_items_cnt > 0)
-                score += height_score / valid_items_cnt;
         }
 
         std::map<int, std::string> extruder_id_types;
@@ -607,7 +637,7 @@ public:
         , m_bin(bin)
     {
         m_bin_area = abs(sl::area(bin));  // due to clockwise or anti-clockwise, the result of sl::area may be negative
-        m_norm = std::sqrt(m_bin_area);
+        m_norm = std::sqrt(2.0 * m_bin_area);
         fill_config(m_pconf, params);
         this->params = params;
 
@@ -774,8 +804,9 @@ template<> std::function<double(const Item&, const ItemGroup&)> AutoArranger<Box
             double miss = Placer::overfit(fullbb, m_bin);
             miss = miss > 0 ? miss : 0;
             score += miss * miss;
-            if (score > LARGE_COST_TO_REJECT)
+            if (score > LARGE_COST_TO_REJECT) {
                 score = 1.5 * LARGE_COST_TO_REJECT;
+            }
         }
 
         return score;
@@ -891,14 +922,56 @@ void _arrange(
             auto bb = itm.boundingBox();
             auto pure_bin_width = bin.width() + scale_(params.bed_shrink_x) * 2;
             auto pure_bin_height = bin.height() + scale_(params.bed_shrink_y) * 2;
-            auto                pure_item_width = bb.width() - itm.inflation() * 2;
-            auto                pure_item_height = bb.height() - itm.inflation() * 2;
-            if (pure_item_width >= pure_bin_width || pure_item_height >= pure_bin_height) {
-                auto angle = fit_into_box_rotation(itm.transformedShape(), bin);
-                BOOST_LOG_TRIVIAL(debug) << itm.name << " too big, rotate to fit_into_box_rotation=" << angle;
-                allowed_angles = {angle};
+            // In sequential print, get_shrink_bedpts inflates the bin by
+            // min_obj_distance on each axis so nfp can push items up to the
+            // real plate edge. pure_item_* below strips the matching item
+            // inflation (min_obj_distance/2 per side), so without this
+            // adjustment the pre-screen would compare a raw-sized item
+            // against a clearance-inflated bin and let oversized objects
+            // through. Subtract the same inflation here so both sides are
+            // measured in raw plate / raw item coordinates.
+            if (params.is_seq_print) {
+                pure_bin_width  -= params.min_obj_distance;
+                pure_bin_height -= params.min_obj_distance;
             }
+            auto pure_item_width = bb.width() - itm.inflation() * 2;
+            auto pure_item_height = bb.height() - itm.inflation() * 2;
+            // Auto rotation checks every 45-degree candidate independently,
+            // so an oversized original angle must not pre-empt this branch.
+            if (params.allow_rotations) {
+                auto angle = min_area_boundingbox_rotation(itm.transformedShape());
+                BOOST_LOG_TRIVIAL(debug) << itm.name << " min_area_boundingbox_rotation=" << angle << ", original angle=" << itm.rotation();
 
+                if (fabs(angle) < EPSILON) {
+                    allowed_angles = {0., PI * 0.25, PI * 0.5, PI * 0.75};
+                } else {
+                    allowed_angles = {0., angle, angle + PI * 0.25, angle + PI * 0.5, angle + PI * 0.75};
+                }
+
+                // Fall back to the min-area-bbox rescue angle only if every
+                // candidate above is still oversized.
+                bool any_candidate_fits = false;
+                for (double cand : allowed_angles) {
+                    auto rotsh = itm.rawShape();
+                    sl::rotate(rotsh, cand);
+                    auto cand_bb = sl::boundingBox(rotsh);
+                    auto cand_item_width  = cand_bb.width() - itm.inflation() * 2;
+                    auto cand_item_height = cand_bb.height() - itm.inflation() * 2;
+                    if (cand_item_width <= pure_bin_width && cand_item_height <= pure_bin_height) {
+                        any_candidate_fits = true;
+                        break;
+                    }
+                }
+                if (!any_candidate_fits) {
+                    BOOST_LOG_TRIVIAL(debug) << itm.name << " too big at every candidate angle, adding fit_into_box_rotation=" << angle;
+                    allowed_angles.emplace_back(angle);
+                }
+            }
+            else if (pure_item_width > pure_bin_width || pure_item_height > pure_bin_height) {
+                auto angle = min_area_boundingbox_rotation(itm.transformedShape());
+                BOOST_LOG_TRIVIAL(debug) << itm.name << " too big, rotate to fit_into_box_rotation=" << angle;
+                allowed_angles.emplace_back(angle);
+            }
             // Use the minimum bounding box rotation as a starting point.
             // TODO: This only works for convex hull. If we ever switch to concave
             // polygon nesting, a convex hull needs to be calculated.
@@ -917,15 +990,6 @@ void _arrange(
                     // min_area_boundingbox_rotation may throw exception of dividing 0 if the object is already perfectly aligned to X
                     BOOST_LOG_TRIVIAL(error) << "arranging min_area_boundingbox_rotation fails, msg=" << e.what();
                 }
-            } else if (params.allow_rotations) {
-                auto angle = min_area_boundingbox_rotation(itm.transformedShape());
-                BOOST_LOG_TRIVIAL(debug) << itm.name << " min_area_boundingbox_rotation=" << angle << ", original angle=" << itm.rotation();
-
-                if (fabs(angle) < EPSILON) {
-                    allowed_angles = {0., PI * 0.25, PI * 0.5, PI * 0.75};
-                } else {
-                    allowed_angles = {0., angle, angle + PI * 0.25, angle + PI * 0.5, angle + PI * 0.75};
-                }
             }
 
             itm.allowed_rotations.clear();
@@ -939,20 +1003,21 @@ void _arrange(
                 bp2d::Coord infl = std::min(original_infl, static_cast<bp2d::Coord>(std::floor(std::min(pure_bin_width - bb.width(), pure_bin_height - bb.height())) / 2.0));
 
                 // check and correct the inflation
-                if (infl < original_infl){
+                if (infl > 0 && infl < original_infl){
                     sl::offset(rotsh, infl);
                     auto box = sl::boundingBox(rotsh);
                     auto diff_w = box.width() - pure_bin_width;
                     auto diff_h = box.height() - pure_bin_height;
-                    if (diff_w > 0 || diff_h > 0)
+                    if (diff_w > 1 || diff_h > 1)
                     {
                         infl -= static_cast<bp2d::Coord>(std::max(diff_w, diff_h));
                     }
                 }
 
-                if (infl >= 0/* && itm.height <= params.printable_height*/) {
-                    // if the bed is expanded, the item should also be expanded
-                    if (params.bed_shrink_x < 0) infl = std::max(infl,(bp2d::Coord) scale_(-params.bed_shrink_x));
+                if (infl >= 0) {
+                    if (params.bed_shrink_x < 0) {
+                        infl = std::max(infl,(bp2d::Coord) scale_(-params.bed_shrink_x));
+                    }
                     itm.allowed_rotations.push_back({angle, infl});
                 }
             }
@@ -978,6 +1043,38 @@ void _arrange(
 
     arranger(inp.begin(), inp.end());
     for (Item &itm : inp) itm.inflation(0);
+
+    // Per-item edge clamp for placer rounding drift.
+    //
+    // libnest2d aligns each item's *inflated* polygon to the (inflated) bin, but
+    // ClipperLib offset can drift a few microns from `raw.bbox + infl_dist`,
+    // pushing the raw bbox past the real plate edge and tripping the GUI
+    // boundary check. Only seq-print needs this -- non-seq shrinks the bin into
+    // the plate, so the inflated bin already lies strictly inside the plate edge.
+    if constexpr (std::is_same_v<BinT, Box>) {
+        if (params.is_seq_print) {
+            // 50 um: empirical upper bound on observed offset drift, kept well
+            // above SceneEpsilon (~0.1 um) yet far below printer XY resolution
+            // (~100 um) so it cannot mask a real overflow.
+            const coord_t kEdgeClampMax = scaled(0.05);
+            const Point   pad(md, md);
+            const Box     raw_plate(bin.minCorner() + pad, bin.maxCorner() - pad);
+            for (Item &itm : inp) {
+                if (itm.binId() < 0) continue;
+                const auto bb = itm.boundingBox();
+                coord_t dx = 0, dy = 0;
+                if (auto d = raw_plate.minCorner().x() - bb.minCorner().x();
+                    d > 0 && d <= kEdgeClampMax) dx = d;
+                else if (auto d = bb.maxCorner().x() - raw_plate.maxCorner().x();
+                         d > 0 && d <= kEdgeClampMax) dx = -d;
+                if (auto d = raw_plate.minCorner().y() - bb.minCorner().y();
+                    d > 0 && d <= kEdgeClampMax) dy = d;
+                else if (auto d = bb.maxCorner().y() - raw_plate.maxCorner().y();
+                         d > 0 && d <= kEdgeClampMax) dy = -d;
+                if (dx != 0 || dy != 0) itm.translate(Point(dx, dy));
+            }
+        }
+    }
 }
 
 inline Box to_nestbin(const BoundingBox &bb) { return Box{{bb.min(X), bb.min(Y)}, {bb.max(X), bb.max(Y)}};}
@@ -1051,7 +1148,7 @@ static void process_arrangeable(const ArrangePolygon &arrpoly,
     item.bed_temp = arrpoly.first_bed_temp;
     item.print_temp = arrpoly.print_temp;
     item.vitrify_temp = arrpoly.vitrify_temp;
-    item.inflation(arrpoly.inflation);
+    item.inflation(std::max(arrpoly.inflation, static_cast<coord_t>(MIN_SEPARATION)));
     item.filament_temp_type = arrpoly.filament_temp_type;
 }
 

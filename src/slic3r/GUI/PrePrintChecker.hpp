@@ -28,6 +28,8 @@ enum class prePrintInfoStyle : int
     BtnNozzleRefresh = 0x002,
     BtnConfirmNotShowAgain = 0x004,
     BtnInstallFanF000 = 0x008,
+    BtnJumpToUpgrade = 0x010,
+    BtnSwitchNozzleBlobAuto = 0x020,
 };
 
 inline constexpr prePrintInfoStyle operator|(prePrintInfoStyle a, prePrintInfoStyle b) noexcept
@@ -43,14 +45,17 @@ struct prePrintInfo
     wxString msg;
     wxString tips;
     wxString wiki_url;
+    wxString link_label;                          // optional: clickable text appended after msg
+    std::function<void()> link_callback;          // optional: internal action for link_label click
     int index;
 
 public:
     bool operator==(const prePrintInfo& other) const {
         return level == other.level && type == other.type &&
                msg == other.msg && tips == other.tips &&
-               wiki_url == other.wiki_url && index == other.index &&
-               m_style == other.m_style;
+               wiki_url == other.wiki_url && link_label == other.link_label &&
+               index == other.index && m_style == other.m_style;
+        // link_callback excluded: std::function is not comparable
     }
 
     bool operator<(const prePrintInfo& other) const {
@@ -64,6 +69,8 @@ public:
             return tips < other.tips;
         if (wiki_url != other.wiki_url)
             return wiki_url < other.wiki_url;
+        if (link_label != other.link_label)
+            return link_label < other.link_label;
         if (index != other.index)
             return index < other.index;
         return m_style < other.m_style;
@@ -89,6 +96,7 @@ enum PrintDialogStatus : unsigned int {
     PrintStatusConnecting,
     PrintStatusReconnecting,
     PrintStatusInUpgrading,
+    PrintStatusFirmwareNotSupportTpuAtLeft,
     PrintStatusModeNotFDM,
     PrintStatusInSystemPrinting,
     PrintStatusInPrinting,
@@ -97,7 +105,6 @@ enum PrintDialogStatus : unsigned int {
     PrintStatusNozzleRackMaximumInstalled,
     PrintStatusNozzleDataInvalid,
     PrintStatusNozzleDiameterMismatch,
-    PrintStatusNozzleTypeMismatch,
     PrintStatusRefreshingMachineList,
     PrintStatusSending,
     PrintStatusLanModeNoSdcard,
@@ -112,6 +119,7 @@ enum PrintDialogStatus : unsigned int {
     PrintStatusRackNozzleMappingWaiting,
     PrintStatusRackNozzleMappingError,
     PrintStatusInvalidMapping,
+    PrintStatusFilaSwitcherError,
     PrintStatusPrinterErrorEnd,
 
     // Errors for filament, Block Print
@@ -134,11 +142,14 @@ enum PrintDialogStatus : unsigned int {
     PrintStatusPrinterWarningBegin,
     PrintStatusTimelapseNoSdcard,
     PrintStatusTimelapseWarning,
+    PrintStatusTimelapseStorageLow,
     PrintStatusMixAmsAndVtSlotWarning,
     PrintStatusToolHeadCoolingFanWarning,
     PrintStatusHasUnreliableNozzleWarning,
     PrintStatusRackNozzleNumUnmeetWarning,
     PrintStatusRackNozzleMappingWarning,
+    PrintStatusFilaSwitcherSlicingNotMatch,
+    PrintStatusNozzleHRCMismatch,
     PrintStatusPrinterWarningEnd,
 
     // Warnings for filament
@@ -149,6 +160,12 @@ enum PrintDialogStatus : unsigned int {
     PrintStatusFilamentWarningHighChamberTempCloseDoor,
     PrintStatusFilamentWarningHighChamberTempSoft,
     PrintStatusFilamentWarningUnknownHighChamberTempSoft,
+    PrintStatusFilamentWarningRemainNotEnough,
+    PrintStatusFilamentCrossExtruderWarning,
+    PrintStatusTPUUnsupportCaliOn,
+    PrintStatusTPUUnsuggestCali,
+    PrintStatusPrintTimeEstimateWarning,
+    PrintStatusSmartNozzleBlobNeedAuto,
     PrintStatusFilamentWarningEnd,
 
     PrintStatusWarningEnd,//->end error<-
@@ -180,6 +197,7 @@ public:
     void clear();
     /*auto merge*/
     void add(PrintDialogStatus state, wxString msg, wxString tip, const wxString& wiki_url, prePrintInfoStyle style);
+    void add_with_link(PrintDialogStatus state, wxString msg, wxString link_label, std::function<void()> callback, prePrintInfoStyle style);
     static ::std::string get_print_status_info(PrintDialogStatus status);
 
 	wxString get_pre_state_msg(PrintDialogStatus status);
@@ -210,6 +228,7 @@ private:
     // events
     void OnNotShowAgain(const prePrintInfo& info);
     void OnRefreshNozzleBtnClicked(wxMouseEvent& event);
+    void OnUpgradeBtnClicked(wxMouseEvent& event);
 
  private:
     SelectMachineDialog* m_select_dialog = nullptr;

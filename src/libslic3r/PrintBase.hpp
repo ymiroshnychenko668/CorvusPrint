@@ -63,7 +63,9 @@ public:
         SlicingReplaceInitEmptyLayers,
         SlicingNeedSupportOn,
         SlicingEmptyGcodeLayers,
-        SlicingGcodeOverlap
+        SlicingGcodeOverlap,
+        SlicingSupportIncomplete,
+        SlicingSupportIncompleteOnBuildPlate
     };
 
     typedef size_t TimeStamp;
@@ -509,6 +511,8 @@ public:
 
     const PlaceholderParser&   placeholder_parser() const { return m_placeholder_parser; }
     const DynamicPrintConfig&  full_print_config() const { return m_full_print_config; }
+
+    const DynamicPrintConfig& ori_full_print_config() const { return m_ori_full_print_config; }
 
     virtual std::string        output_filename(const std::string &filename_base = std::string()) const = 0;
     // If the filename_base is set, it is used as the input for the template processing. In that case the path is expected to be the directory (may be empty).

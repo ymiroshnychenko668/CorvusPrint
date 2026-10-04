@@ -133,13 +133,27 @@ public:
     void fill_surface_extrusion(const Surface *surface, const FillParams &params, ExtrusionEntitiesPtr &out) override;
     bool is_self_crossing() override { return false; }
 
-    bool apply_gap_compensation{ false };
+    float gap_compensation_ratio{0.0};
+
 protected:
     Fill* clone() const override { return new FillMonotonicLineWGapFill(*this); };
     bool no_sort() const override { return true; }
+    // When true, keep monotonic-line geometry, sweep columns left-to-right,
+    // and alternate direction by column.
+    virtual bool global_monotonic_sweep() const { return false; }
 
 private:
     void fill_surface_by_lines(const Surface* surface, const FillParams& params, Polylines& polylines_out);
+};
+
+class FillGlobalMonotonicLine : public FillMonotonicLineWGapFill
+{
+public:
+    Fill* clone() const override { return new FillGlobalMonotonicLine(*this); }
+    ~FillGlobalMonotonicLine() override = default;
+
+protected:
+    bool global_monotonic_sweep() const override { return true; }
 };
 
 class FillZigZag : public FillRectilinear
@@ -183,6 +197,18 @@ public:
         this->skin_pattern = skin_pattern;
         this->skeleton_pattern = skeleton_pattern;
     };
+};
+
+class Fill2DLattice : public FillRectilinear
+{
+public:
+    Fill *clone() const override { return new Fill2DLattice(*this); }
+    ~Fill2DLattice() override = default;
+    Polylines fill_surface(const Surface *surface, const FillParams &params) override;
+
+protected:
+    // The grid fill will keep the angle constant between the layers, see the implementation of Slic3r::Fill.
+    float _layer_angle(size_t idx) const override { return 0.f; }
 };
 
 Points sample_grid_pattern(const ExPolygon &expolygon, coord_t spacing, const BoundingBox &global_bounding_box);

@@ -6,9 +6,6 @@
 #include "../Utils/MacDarkMode.hpp"
 #include "../Utils/WxFontUtils.hpp"
 #include "../GUI_App.hpp"
-#ifdef __APPLE__
-#include "libslic3r/MacUtils.hpp"
-#endif
 
 #include <wx/dcclient.h>
 #include <wx/dcgraph.h>
@@ -87,10 +84,12 @@ void SwitchButton::Rescale()
 #ifdef __WXOSX__
         dc.SetFont(dc.GetFont().Scaled(scale));
 #endif
+        wxFontMetrics fm = dc.GetFontMetrics();
+        int fmHeight = fm.ascent + fm.descent;
         wxSize textSize[2];
 		{
-			textSize[0] = dc.GetTextExtent(labels[0]);
-			textSize[1] = dc.GetTextExtent(labels[1]);
+			textSize[0] = { dc.GetTextExtent(labels[0]).x, fmHeight };
+			textSize[1] = { dc.GetTextExtent(labels[1]).x, fmHeight };
 		}
 		float fontScale = 0;
 		{
@@ -129,8 +128,10 @@ void SwitchButton::Rescale()
             memdc.SetFont(dc.GetFont());
             if (fontScale) {
                 memdc.SetFont(dc.GetFont().Scaled(fontScale));
-                textSize[0] = memdc.GetTextExtent(labels[0]);
-                textSize[1] = memdc.GetTextExtent(labels[1]);
+                wxFontMetrics fmScaled = memdc.GetFontMetrics();
+                int fmScaledH = fmScaled.ascent + fmScaled.descent;
+                textSize[0] = { memdc.GetTextExtent(labels[0]).x, fmScaledH };
+                textSize[1] = { memdc.GetTextExtent(labels[1]).x, fmScaledH };
 			}
 			auto state = i == 0 ? StateColor::Enabled : (StateColor::Checked | StateColor::Enabled);
             {
@@ -149,17 +150,17 @@ void SwitchButton::Rescale()
             memdc.SetTextForeground(text_color.colorForStates(state ^ StateColor::Checked));
             auto text_y = BS + (thumbSize.y - textSize[0].y) / 2;
 #ifdef __APPLE__
-            if (Slic3r::is_mac_version_15()) {
-                text_y -= FromDIP(2);
-            }
+            /* wx计算文字长宽都是浮点数向下取整
+               macOS系统文字渲染为了抗锯齿效果，会在边缘向外多渲染0.5到1个像素，所以需要向上取整
+               简单方案：+1手动向上取整
+            */
+            text_y -= FromDIP(1);
 #endif
             memdc.DrawText(labels[0], {BS + (thumbSize.x - textSize[0].x) / 2, text_y});
             memdc.SetTextForeground(text_color2.count() == 0 ? text_color.colorForStates(state) : text_color2.colorForStates(state));
             auto text_y_1 = BS + (thumbSize.y - textSize[1].y) / 2;
 #ifdef __APPLE__
-            if (Slic3r::is_mac_version_15()) {
-                text_y_1 -= FromDIP(2);
-            }
+            text_y_1 -= FromDIP(1);
 #endif
             memdc.DrawText(labels[1], {trackSize.x - thumbSize.x - BS + (thumbSize.x - textSize[1].x) / 2, text_y_1});
 			memdc.SelectObject(wxNullBitmap);
@@ -229,6 +230,15 @@ void SwitchBoard::updateState(wxString target)
     Refresh();
 }
 
+void SwitchBoard::SetLabels(const wxString &left, const wxString &right)
+{
+    if (leftLabel == left && rightLabel == right)
+        return;
+    leftLabel  = left;
+    rightLabel = right;
+    Refresh();
+}
+
 void SwitchBoard::paintEvent(wxPaintEvent &evt)
 {
     wxPaintDC dc(this);
@@ -281,8 +291,10 @@ void SwitchBoard::doRender(wxDC &dc)
     dc.SetFont(::Label::Body_13);
     Slic3r::GUI::WxFontUtils::get_suitable_font_size(0.6 * GetSize().GetHeight(), dc);
 
+    wxFontMetrics fm = dc.GetFontMetrics();
+    int fmHeight = fm.ascent + fm.descent;
     auto left_txt_size = dc.GetTextExtent(leftLabel);
-    dc.DrawText(leftLabel, wxPoint((GetSize().x / 2 - left_txt_size.x) / 2, (GetSize().y - left_txt_size.y) / 2));
+    dc.DrawText(leftLabel, wxPoint((GetSize().x / 2 - left_txt_size.x) / 2, (GetSize().y - fmHeight) / 2));
 
 	/*right*/
     if (switch_right) {
@@ -297,7 +309,7 @@ void SwitchBoard::doRender(wxDC &dc)
     } else {
         dc.SetTextForeground(0x333333);
     }
-    dc.DrawText(rightLabel, wxPoint((GetSize().x / 2 - right_txt_size.x) / 2 + GetSize().x / 2, (GetSize().y - right_txt_size.y) / 2));
+    dc.DrawText(rightLabel, wxPoint((GetSize().x / 2 - right_txt_size.x) / 2 + GetSize().x / 2, (GetSize().y - fmHeight) / 2));
 
 }
 
@@ -306,19 +318,9 @@ void SwitchBoard::on_left_down(wxMouseEvent &evt)
     if (!is_enable) {
         return;
     }
-    int index = -1;
-    auto pos = ClientToScreen(evt.GetPosition());
-    auto rect = ClientToScreen(wxPoint(0, 0));
 
-    if (pos.x > 0 && pos.x < rect.x + GetSize().x / 2) {
-        switch_left = true;
-        switch_right = false;
-        index = 1;
-    } else {
-        switch_left  = false;
-        switch_right = true;
-        index = 0;
-    }
+    switch_left = evt.GetPosition().x < GetSize().GetWidth() / 2;
+    switch_right = !switch_left;
 
     if (auto_disable_when_switch)
     {
@@ -327,7 +329,7 @@ void SwitchBoard::on_left_down(wxMouseEvent &evt)
     Refresh();
 
     wxCommandEvent event(wxCUSTOMEVT_SWITCH_POS);
-    event.SetInt(index);
+    event.SetInt((int)switch_left);
     wxPostEvent(this, event);
 }
 
@@ -471,7 +473,8 @@ void CustomToggleButton::doRender(wxDC& dc)
         dc.SetTextForeground(Slic3r::GUI::wxGetApp().dark_mode() ? *wxWHITE:wxColour("#5C5C5C"));
     }
 
-    int textY = (rect.GetHeight() - dc.GetCharHeight()) / 2;
+    wxFontMetrics fm = dc.GetFontMetrics();
+    int textY = (rect.GetHeight() - (fm.ascent + fm.descent)) / 2;
     dc.DrawText(m_label, left, textY);
 }
 void CustomToggleButton::OnSize(wxSizeEvent& event) {
@@ -479,21 +482,101 @@ void CustomToggleButton::OnSize(wxSizeEvent& event) {
     event.Skip();
 }
 
+// RichTooltipPopup implementation
+RichTooltipPopup::RichTooltipPopup(wxWindow* parent, const wxString& iconName, const wxString& text)
+    : wxPopupTransientWindow(parent, wxBORDER_NONE)
+    , m_text(text)
+{
+    SetBackgroundColour(wxColour(50, 50, 50));
+    
+    wxBoxSizer* sizer = new wxBoxSizer(wxHORIZONTAL);
+    
+    // Add icon if provided
+    if (!iconName.IsEmpty()) {
+        m_icon = create_scaled_bitmap(iconName.ToStdString(), this, 32);
+        if (m_icon.IsOk()) {
+            wxStaticBitmap* iconCtrl = new wxStaticBitmap(this, wxID_ANY, m_icon);
+            sizer->Add(iconCtrl, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(12));
+        }
+    }
+    
+    // Add text
+    wxStaticText* textCtrl = new wxStaticText(this, wxID_ANY, m_text);
+    textCtrl->SetFont(Label::Body_13);
+    textCtrl->SetForegroundColour(*wxWHITE);
+    sizer->Add(textCtrl, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(12));
+    
+    SetSizer(sizer);
+    sizer->Fit(this);
+    
+    // Add vertical padding
+    wxSize size = GetSize();
+    size.SetHeight(size.GetHeight() + FromDIP(16));
+    SetSize(size);
+    SetMinSize(size);
+    
+    Bind(wxEVT_PAINT, &RichTooltipPopup::OnPaint, this);
+}
+
+void RichTooltipPopup::OnPaint(wxPaintEvent& event)
+{
+    wxPaintDC dc(this);
+    // Just fill background - controls handle their own drawing
+    dc.SetBrush(wxBrush(wxColour(50, 50, 50)));
+    dc.SetPen(*wxTRANSPARENT_PEN);
+    dc.DrawRectangle(GetClientRect());
+    event.Skip();
+}
+
+void RichTooltipPopup::ShowAtPosition(wxWindow* anchor)
+{
+    wxPoint pos = anchor->ClientToScreen(wxPoint(0, 0));
+    wxSize anchorSize = anchor->GetSize();
+    wxSize tipSize = GetSize();
+    
+    // Position below the anchor, centered
+    pos.x += (anchorSize.GetWidth() - tipSize.GetWidth()) / 2;
+    pos.y += anchorSize.GetHeight() + FromDIP(4);
+    
+    SetPosition(pos);
+    Popup();
+}
+
 ExpandButton::ExpandButton(wxWindow* parent,  std::string bmp, wxWindowID id, const wxPoint& pos, const wxSize& size)
     : wxWindow(parent, id, pos, size)
+    , m_tooltip_popup(nullptr)
 {
     m_bmp_str = bmp;
     m_bmp = create_scaled_bitmap(m_bmp_str, this, 18);
     SetMinSize(wxSize(FromDIP(24), FromDIP(24)));
     SetMaxSize(wxSize(FromDIP(24), FromDIP(24)));
     Bind(wxEVT_PAINT, &ExpandButton::OnPaint, this);
-    Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_HAND); });
-    Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { SetCursor(wxCURSOR_ARROW); });
+    Bind(wxEVT_ENTER_WINDOW, [this](auto& e) { 
+        SetCursor(wxCURSOR_HAND);
+        ShowRichTooltip();
+    });
+    Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) { 
+        SetCursor(wxCURSOR_ARROW);
+        HideRichTooltip();
+    });
     Bind(wxEVT_LEFT_DOWN, [this](auto& e) {
+        HideRichTooltip();
         wxCommandEvent event(wxEXPAND_LEFT_DOWN);
         event.SetInt(GetId());
         wxPostEvent(GetParent(), event);
     });
+}
+
+ExpandButton::~ExpandButton()
+{
+    // Clean up tooltip popup to prevent memory leak
+    if (m_tooltip_popup) {
+        if (m_tooltip_popup->IsShown()) {
+            m_tooltip_popup->Dismiss();
+        }
+        m_tooltip_popup->Destroy();
+        m_tooltip_popup = nullptr;
+    }
 }
 
 void ExpandButton::update_bitmap(std::string bmp)
@@ -506,6 +589,44 @@ void ExpandButton::msw_rescale()
 {
     m_bmp = create_scaled_bitmap(m_bmp_str, this, 18);
     Refresh();
+}
+
+void ExpandButton::SetRichTooltip(const wxString& iconName, const wxString& text)
+{
+    m_tooltip_icon = iconName;
+    m_tooltip_text = text;
+}
+
+void ExpandButton::ShowRichTooltip()
+{
+    if (m_tooltip_text.IsEmpty()) return;
+    
+    // Clean up any existing popup before creating a new one to prevent memory leaks
+    if (m_tooltip_popup) {
+        // Dismiss and destroy the existing popup
+        if (m_tooltip_popup->IsShown()) {
+            m_tooltip_popup->Dismiss();
+        }
+        m_tooltip_popup->Destroy();
+        m_tooltip_popup = nullptr;
+    }
+    
+    // Create a new popup instance
+    m_tooltip_popup = new RichTooltipPopup(this, m_tooltip_icon, m_tooltip_text);
+    m_tooltip_popup->ShowAtPosition(this);
+}
+
+void ExpandButton::HideRichTooltip()
+{
+    if (m_tooltip_popup) {
+        // Dismiss the popup if it's currently shown
+        if (m_tooltip_popup->IsShown()) {
+            m_tooltip_popup->Dismiss();
+        }
+        // Destroy the popup to prevent memory leak
+        m_tooltip_popup->Destroy();
+        m_tooltip_popup = nullptr;
+    }
 }
 
 void ExpandButton::OnPaint(wxPaintEvent& event) {
@@ -652,6 +773,38 @@ void ExpandButtonHolder::EnableExpandButton(wxWindowID id, bool enb)
                 expandBtn->Enable(enb);
             }
         }
+    }
+}
+
+// Helper method to find an ExpandButton by ID
+ExpandButton* ExpandButtonHolder::FindExpandButton(wxWindowID id)
+{
+    wxWindowList& children = this->GetChildren();
+    for (wxWindowList::iterator it = children.begin(); it != children.end(); ++it)
+    {
+        wxWindow* child = *it;
+        if (!child) continue;
+        ExpandButton* expandBtn = dynamic_cast<ExpandButton*>(child);
+        if (expandBtn != nullptr && expandBtn->GetId() == id) {
+            return expandBtn;
+        }
+    }
+    return nullptr;
+}
+
+void ExpandButtonHolder::SetExpandButtonTooltip(wxWindowID id, const wxString& tooltip)
+{
+    ExpandButton* expandBtn = FindExpandButton(id);
+    if (expandBtn != nullptr) {
+        expandBtn->SetToolTip(tooltip);
+    }
+}
+
+void ExpandButtonHolder::SetExpandButtonRichTooltip(wxWindowID id, const wxString& iconName, const wxString& text)
+{
+    ExpandButton* expandBtn = FindExpandButton(id);
+    if (expandBtn != nullptr) {
+        expandBtn->SetRichTooltip(iconName, text);
     }
 }
 

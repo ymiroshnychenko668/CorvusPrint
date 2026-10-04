@@ -12,6 +12,8 @@
 #include <stdexcept>
 
 #include <boost/log/trivial.hpp>
+#include <boost/lexical_cast.hpp>
+
 #include "nlohmann/json.hpp"
 
  /* Sequence Id*/
@@ -32,6 +34,7 @@ public:
 public:
     static int get_flag_bits(std::string str, int start, int count = 1);
     static int get_flag_bits(int num, int start, int count = 1, int base = 10);
+    static uint32_t get_flag_bits_no_border(std::string str, int start_idx, int count = 1);
 
     // eg. get_hex_bits(16, 1, 10) = 1
     static int get_hex_bits(int num, int pos, int input_num_base = 10) { return get_flag_bits(num, pos * 4, 4, input_num_base);};
@@ -163,5 +166,47 @@ private:
     int         m_start_time{0};
     int         m_threshold{0};
 };
+
+
+static std::string s_get_diameter_str(float diameter)
+{
+    return (boost::format("%.2f") % diameter).str();
+}
+
+static std::string s_get_diameter_str(const std::string& diameter)
+{
+    try {
+        float dia = boost::lexical_cast<float>(diameter);
+        return s_get_diameter_str(dia);
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " failed to boost::lexical_cast: " << diameter;
+        return diameter;
+    }
+
+    try {
+        float dia = std::stof(diameter);
+        return s_get_diameter_str(dia);
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " std::stof: " << diameter;
+        return diameter;
+    }
+}
+
+static float s_get_diameter(const std::string& diameter)
+{
+    try {
+        return boost::lexical_cast<float>(diameter);
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " failed to boost::lexical_cast: " << diameter;
+    }
+
+    try {
+        return std::stof(diameter);
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " std::stof: " << diameter;
+    }
+
+    return 0.0;
+}
 
 }; // namespace Slic3r

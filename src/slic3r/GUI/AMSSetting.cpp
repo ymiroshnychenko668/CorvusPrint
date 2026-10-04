@@ -10,6 +10,7 @@
 
 #include "slic3r/GUI/MsgDialog.hpp"
 
+#include "slic3r/GUI/Widgets/AMSItem.hpp"
 #include "slic3r/GUI/Widgets/AnimaController.hpp"
 #include "slic3r/GUI/Widgets/Label.hpp"
 #include "slic3r/GUI/Widgets/ComboBox.hpp"
@@ -42,8 +43,8 @@ void AMSSetting::create()
     m_ams_type = new AMSSettingTypePanel(m_panel_body, this);
     m_ams_type->Show(false);
 
-    //m_ams_arrange_order = new AMSSettingArrangeAMSOrder(m_panel_body);
-    //m_ams_arrange_order->Show(false);
+    m_ams_arrange_order = new AMSSettingArrangeAMSOrder(m_panel_body);
+    m_ams_arrange_order->Show(false);
 
     m_panel_Insert_material = new wxPanel(m_panel_body, wxID_ANY, wxDefaultPosition, wxSize(-1, -1), wxTAB_TRAVERSAL);
     m_panel_Insert_material->SetBackgroundColour(*wxWHITE);
@@ -55,7 +56,7 @@ void AMSSetting::create()
     m_checkbox_Insert_material_auto_read->Bind(wxEVT_TOGGLEBUTTON, &AMSSetting::on_insert_material_read, this);
     m_sizer_Insert_material->Add(m_checkbox_Insert_material_auto_read, 0, wxALIGN_CENTER_VERTICAL);
 
-    m_sizer_Insert_material->Add(0, 0, 0, wxLEFT, 12);
+    m_sizer_Insert_material->Add(0, 0, 0, wxLEFT, FromDIP(12));
 
     m_title_Insert_material_auto_read = new wxStaticText(m_panel_Insert_material, wxID_ANY, _L("Insertion update"),
                                                          wxDefaultPosition, wxDefaultSize, 0);
@@ -67,7 +68,7 @@ void AMSSetting::create()
 
     wxBoxSizer *m_sizer_Insert_material_tip = new wxBoxSizer(wxHORIZONTAL);
     m_sizer_Insert_material_tip_inline      = new wxBoxSizer(wxVERTICAL);
-    m_sizer_Insert_material_tip->Add(0, 0, 0, wxLEFT, 10);
+    m_sizer_Insert_material_tip->Add(0, 0, 0, wxLEFT, FromDIP(30));
 
     // tip line1
     m_tip_Insert_material_line1 = new Label(m_panel_Insert_material,
@@ -105,7 +106,7 @@ void AMSSetting::create()
     m_sizer_Insert_material_tip->Add(m_sizer_Insert_material_tip_inline, 1, wxALIGN_CENTER, 0);
 
     m_sizer_main_Insert_material->Add(m_sizer_Insert_material, 0, wxEXPAND | wxTOP, FromDIP(4));
-    m_sizer_main_Insert_material->Add(m_sizer_Insert_material_tip, 0, wxEXPAND | wxLEFT | wxTOP, FromDIP(10));
+    m_sizer_main_Insert_material->Add(m_sizer_Insert_material_tip, 0, wxEXPAND | wxTOP, FromDIP(4));
     m_panel_Insert_material->SetSizer(m_sizer_main_Insert_material);
 
     // checkbox area 2
@@ -113,7 +114,7 @@ void AMSSetting::create()
     m_checkbox_starting_auto_read = new ::CheckBox(m_panel_body);
     m_checkbox_starting_auto_read->Bind(wxEVT_TOGGLEBUTTON, &AMSSetting::on_starting_read, this);
     m_sizer_starting->Add(m_checkbox_starting_auto_read, 0, wxALIGN_CENTER_VERTICAL);
-    m_sizer_starting->Add(0, 0, 0, wxLEFT, 12);
+    m_sizer_starting->Add(0, 0, 0, wxLEFT, FromDIP(12));
     m_title_starting_auto_read = new wxStaticText(m_panel_body, wxID_ANY, _L("Power on update"), wxDefaultPosition,wxDefaultSize, 0);
     m_title_starting_auto_read->SetFont(::Label::Head_13);
     m_title_starting_auto_read->SetForegroundColour(AMS_SETTING_GREY800);
@@ -121,13 +122,13 @@ void AMSSetting::create()
     m_sizer_starting->Add(m_title_starting_auto_read, 0, wxALIGN_CENTER_VERTICAL | wxALIGN_LEFT, 0);
 
     wxBoxSizer *m_sizer_starting_tip = new wxBoxSizer(wxHORIZONTAL);
-    m_sizer_starting_tip->Add(0, 0, 0, wxLEFT, 10);
+    m_sizer_starting_tip->Add(0, 0, 0, wxLEFT, FromDIP(30));
 
     // tip line
     m_sizer_starting_tip_inline = new wxBoxSizer(wxVERTICAL);
 
     m_tip_starting_line1 = new Label(m_panel_body,
-        _L("The AMS will automatically read the information of inserted filament on start-up. It will take about 1 minute.The reading process will roll filament spools.")
+        _L("The AMS will automatically read the information of inserted filament on start-up. It will take about 1 minute. The reading process will roll filament spools.")
     );
     m_tip_starting_line1->SetFont(::Label::Body_13);
     m_tip_starting_line1->SetForegroundColour(AMS_SETTING_GREY700);
@@ -150,7 +151,7 @@ void AMSSetting::create()
     m_checkbox_remain = new ::CheckBox(m_panel_body);
     m_checkbox_remain->Bind(wxEVT_TOGGLEBUTTON, &AMSSetting::on_remain, this);
     m_sizer_remain->Add(m_checkbox_remain, 0, wxALIGN_CENTER_VERTICAL);
-    m_sizer_remain->Add(0, 0, 0, wxLEFT, 12);
+    m_sizer_remain->Add(0, 0, 0, wxLEFT, FromDIP(12));
     m_title_remain = new wxStaticText(m_panel_body, wxID_ANY, _L("Update remaining capacity"), wxDefaultPosition, wxDefaultSize, 0);
     m_title_remain->SetFont(::Label::Head_13);
     m_title_remain->SetForegroundColour(AMS_SETTING_GREY800);
@@ -160,7 +161,7 @@ void AMSSetting::create()
 
 
     wxBoxSizer* m_sizer_remain_tip = new wxBoxSizer(wxHORIZONTAL);
-    m_sizer_remain_tip->Add(0, 0, 0, wxLEFT, 10);
+    m_sizer_remain_tip->Add(0, 0, 0, wxLEFT, FromDIP(30));
 
     // tip line
     m_sizer_remain_inline = new wxBoxSizer(wxVERTICAL);
@@ -178,7 +179,7 @@ void AMSSetting::create()
     m_checkbox_switch_filament = new ::CheckBox(m_panel_body);
     m_checkbox_switch_filament->Bind(wxEVT_TOGGLEBUTTON, &AMSSetting::on_switch_filament, this);
     m_sizer_switch_filament->Add(m_checkbox_switch_filament, 0, wxALIGN_CENTER_VERTICAL);
-    m_sizer_switch_filament->Add(0, 0, 0, wxLEFT, 12);
+    m_sizer_switch_filament->Add(0, 0, 0, wxLEFT, FromDIP(12));
     m_title_switch_filament = new wxStaticText(m_panel_body, wxID_ANY, _L("AMS filament backup"), wxDefaultPosition, wxDefaultSize, 0);
     m_title_switch_filament->SetFont(::Label::Head_13);
     m_title_switch_filament->SetForegroundColour(AMS_SETTING_GREY800);
@@ -188,7 +189,7 @@ void AMSSetting::create()
 
 
     wxBoxSizer* m_sizer_switch_filament_tip = new wxBoxSizer(wxHORIZONTAL);
-    m_sizer_switch_filament_tip->Add(0, 0, 0, wxLEFT, 10);
+    m_sizer_switch_filament_tip->Add(0, 0, 0, wxLEFT, FromDIP(30));
 
     // tip line
     m_sizer_switch_filament_inline = new wxBoxSizer(wxVERTICAL);
@@ -210,7 +211,7 @@ void AMSSetting::create()
     m_checkbox_air_print = new ::CheckBox(m_panel_body);
     m_checkbox_air_print->Bind(wxEVT_TOGGLEBUTTON, &AMSSetting::on_air_print_detect, this);
     m_sizer_air_print->Add(m_checkbox_air_print, 0, wxTOP, 1);
-    m_sizer_air_print->Add(0, 0, 0, wxLEFT, 12);
+    m_sizer_air_print->Add(0, 0, 0, wxLEFT, FromDIP(12));
     m_title_air_print = new wxStaticText(m_panel_body, wxID_ANY, _L("Air Printing Detection"), wxDefaultPosition, wxDefaultSize, 0);
     m_title_air_print->SetFont(::Label::Head_13);
     m_title_air_print->SetForegroundColour(AMS_SETTING_GREY800);
@@ -218,7 +219,7 @@ void AMSSetting::create()
     m_sizer_air_print->Add(m_title_air_print, 1, wxEXPAND, 0);
 
     wxBoxSizer* m_sizer_air_print_tip = new wxBoxSizer(wxHORIZONTAL);
-    m_sizer_air_print_tip->Add(0, 0, 0, wxLEFT, 10);
+    m_sizer_air_print_tip->Add(0, 0, 0, wxLEFT, FromDIP(30));
 
     // tip line
     auto m_sizer_air_print_inline = new wxBoxSizer(wxVERTICAL);
@@ -239,7 +240,7 @@ void AMSSetting::create()
 
 
     // panel img
-    wxPanel* m_panel_img = new wxPanel(m_panel_body, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+    m_panel_img = new wxPanel(m_panel_body, wxID_ANY, wxDefaultPosition, wxDefaultSize);
     m_panel_img->SetBackgroundColour(AMS_SETTING_GREY200);
     wxBoxSizer *m_sizer_img = new wxBoxSizer(wxVERTICAL);
     m_am_img = new wxStaticBitmap(m_panel_img, wxID_ANY, create_scaled_bitmap("ams_icon", nullptr, 126), wxDefaultPosition, wxDefaultSize);
@@ -252,12 +253,12 @@ void AMSSetting::create()
     m_sizer_remain_block = new wxBoxSizer(wxVERTICAL);
     m_sizer_remain_block->Add(m_sizer_remain, 0, wxEXPAND | wxTOP, FromDIP(8));
     m_sizer_remain_block->Add(0, 0, 0, wxTOP, 8);
-    m_sizer_remain_block->Add(m_sizer_remain_tip, 0, wxLEFT, 18);
+    m_sizer_remain_block->Add(m_sizer_remain_tip, 0, wxEXPAND, 0);
     m_sizer_remain_block->Add(0, 0, 0, wxTOP, 15);
 
     m_sizerl_body->AddSpacer(FromDIP(12));
     m_sizerl_body->Add(m_ams_type, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(12));
-    //m_sizerl_body->Add(m_ams_arrange_order, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(12));    
+    //m_sizerl_body->Add(m_ams_arrange_order, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(12));
     m_sizerl_body->Add(m_panel_Insert_material, 0, wxEXPAND | wxTOP, FromDIP(12));
     m_sizerl_body->Add(m_sizer_starting, 0, wxEXPAND | wxTOP, FromDIP(12));
     m_sizerl_body->Add(m_sizer_starting_tip, 0, wxEXPAND | wxTOP, FromDIP(12));
@@ -266,6 +267,7 @@ void AMSSetting::create()
     m_sizerl_body->Add(m_sizer_switch_filament_tip, 0, wxEXPAND | wxTOP, FromDIP(12));
     m_sizerl_body->Add(m_sizer_air_print, 0, wxEXPAND | wxTOP, FromDIP(12));
     m_sizerl_body->Add(m_sizer_air_print_tip, 0, wxEXPAND | wxTOP, FromDIP(12));
+    m_sizerl_body->Add(m_ams_arrange_order, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(12));
     m_sizerl_body->Add(m_panel_img, 1, wxEXPAND | wxALL, FromDIP(5));
 
     m_panel_body->SetSizer(m_sizerl_body);
@@ -295,15 +297,16 @@ void AMSSetting::UpdateByObj(MachineObject* obj)
     update_ams_img(obj);
 
     m_ams_type->Update(obj);
-    //m_ams_arrange_order->Update(obj);
+    m_ams_arrange_order->Update(obj);
     update_insert_material_read_mode(obj);
-    m_sizer_remain_block->Show(obj->is_support_update_remain);
     update_starting_read_mode(obj->GetFilaSystem()->IsDetectOnPowerupEnabled());
     update_remain_mode(obj->GetFilaSystem()->IsDetectRemainEnabled());
     update_switch_filament(obj->GetFilaSystem()->IsAutoRefillEnabled());
     update_air_printing_detection(obj);
 
     update_firmware_switching_status();// on fila_firmware_switch
+
+    Layout();
 }
 
 void AMSSetting::update_firmware_switching_status()
@@ -413,6 +416,17 @@ void AMSSetting::update_ams_img(MachineObject* obj_)
         return;
     }
 
+    const auto& print_jj = DevPrinterConfigUtil::get_json_from_config(obj_->printer_type, "print");
+    if (print_jj.contains("support_ams_settings_hide_image") && DevJsonValParser::GetVal<bool>(print_jj, "support_ams_settings_hide_image", false)) {
+        // Hide the whole image panel; hiding only m_am_img leaves an empty grey
+        // panel that still fills the remaining space (added with proportion 1).
+        m_am_img->Hide();
+        m_panel_img->Hide();
+        Layout();
+        Fit();
+        return;
+    }
+
     std::string ams_icon_str = DevPrinterConfigUtil::get_printer_ams_img(obj_->printer_type);
     if (auto ams_switch = obj_->GetFilaSystem()->GetAmsFirmwareSwitch().lock();
         ams_switch->GetCurrentFirmwareIdxSel() == 1) {
@@ -425,9 +439,13 @@ void AMSSetting::update_ams_img(MachineObject* obj_)
     }
 
     if (ams_icon_str != m_ams_img_name) {
+        m_ams_img_name = ams_icon_str;
         m_am_img->SetBitmap(create_scaled_bitmap(ams_icon_str, nullptr, 126));
         m_am_img->Refresh();
     }
+
+    m_am_img->Show();
+    m_panel_img->Show();
 }
 
 void AMSSetting::update_starting_read_mode(bool selected)
@@ -447,18 +465,16 @@ void AMSSetting::update_starting_read_mode(bool selected)
 
 void AMSSetting::update_remain_mode(bool selected)
 {
-    if (m_obj->is_support_update_remain) {
-        m_checkbox_remain->Show();
-        m_title_remain->Show();
-        m_tip_remain_line1->Show();
+    bool show_remain_option = m_obj->is_support_update_remain && !m_obj->is_support_update_remain_hide_display;
+
+    if (show_remain_option != m_checkbox_remain->IsShown()) {
+        m_checkbox_remain->Show(show_remain_option);
+        m_title_remain->Show(show_remain_option);
+        m_tip_remain_line1->Show(show_remain_option);
+        m_sizer_remain_block->Show(show_remain_option);
         Layout();
     }
-    else {
-        m_checkbox_remain->Hide();
-        m_title_remain->Hide();
-        m_tip_remain_line1->Hide();
-        Layout();
-    }
+
     m_checkbox_remain->SetValue(selected);
 }
 
@@ -485,7 +501,8 @@ void AMSSetting::update_air_printing_detection(MachineObject* obj)
         return;
     }
 
-    if (obj->is_support_air_print_detection) {
+    //For A1 and A1 Min,air_print_detection in the AMS settings; for other printer, air_print_detection in the Print Options.
+    if (obj->is_support_air_print_detection && (DevPrinterConfigUtil::air_print_detection_position(obj->printer_type) == "ams_setting")) {
         m_checkbox_air_print->Show();
         m_title_air_print->Show();
         m_tip_air_print_line->Show();
@@ -696,7 +713,7 @@ void AMSSettingTypePanel::OnAmsTypeChanged(wxCommandEvent& event)
         event.Skip();
         return;
     }
-   
+
     auto obj_ = part->GetFilaSystem()->GetOwner();
     if (obj_) {
         if (obj_->is_in_printing() || obj_->is_in_upgrading())  {
@@ -715,7 +732,7 @@ void AMSSettingTypePanel::OnAmsTypeChanged(wxCommandEvent& event)
             if (m_setting_dlg) {
                 m_setting_dlg->EndModal(wxID_OK);
             }
-            
+
             return;
         }
 
@@ -733,7 +750,6 @@ void AMSSettingTypePanel::OnAmsTypeChanged(wxCommandEvent& event)
     event.Skip();
 }
 
-#if 0 /*used option*/
 AMSSettingArrangeAMSOrder::AMSSettingArrangeAMSOrder(wxWindow* parent)
     : wxPanel(parent)
 {
@@ -742,18 +758,38 @@ AMSSettingArrangeAMSOrder::AMSSettingArrangeAMSOrder(wxWindow* parent)
 
 void AMSSettingArrangeAMSOrder::CreateGui()
 {
-    wxBoxSizer* h_sizer = new wxBoxSizer(wxHORIZONTAL);
+    wxBoxSizer* main_sizer = new wxBoxSizer(wxHORIZONTAL);
+
+    wxBoxSizer* v_sizer = new wxBoxSizer(wxVERTICAL);
     Label* title = new Label(this, ::Label::Head_13, _L("Arrange AMS Order"));
     title->SetBackgroundColour(*wxWHITE);
 
-    m_btn_rearrange = new ScalableButton(this, wxID_ANY, "dev_ams_rearrange");
-    m_btn_rearrange->SetBackgroundColour(*wxWHITE);
-    m_btn_rearrange->SetMinSize(wxSize(FromDIP(13), FromDIP(13)));
+    Label* note = new Label(this, ::Label::Head_13, _L("After clicking 'Reconnect', all AMS units will be automatically disconnected.\n"
+                                                       "Please reconnect them in the desired order to set a specific AMS ID sequence."));
+    note->SetFont(::Label::Body_13);
+    note->SetForegroundColour(AMS_SETTING_GREY700);
+    note->SetBackgroundColour(*wxWHITE);
+    note->SetSize(wxSize(AMS_SETTING_BODY_WIDTH, -1));
+    note->Wrap(AMS_SETTING_BODY_WIDTH);
+
+    StateColor btn_bg_green(std::pair<wxColour, int>(AMS_CONTROL_DISABLE_COLOUR, StateColor::Disabled), std::pair<wxColour, int>(wxColour(27, 136, 68), StateColor::Pressed),
+                            std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered), std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
+    StateColor btn_bd_green(std::pair<wxColour, int>(AMS_CONTROL_WHITE_COLOUR, StateColor::Disabled), std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Enabled));
+
+    m_btn_rearrange = new Button(this, _L("Reset"));
+    m_btn_rearrange->SetBackgroundColor(btn_bg_green);
+    m_btn_rearrange->SetBorderColor(btn_bd_green);
+    m_btn_rearrange->SetTextColor(wxColour("#FFFFFE"));
+    m_btn_rearrange->SetSize(wxSize(FromDIP(128), FromDIP(26)));
+    m_btn_rearrange->SetMinSize(wxSize(-1, FromDIP(26)));
+    m_btn_rearrange->SetMaxSize(wxSize(-1, FromDIP(26)));
     m_btn_rearrange->Bind(wxEVT_BUTTON, &AMSSettingArrangeAMSOrder::OnBtnRearrangeClicked, this);
-    h_sizer->Add(title, 0);
-    h_sizer->AddStretchSpacer();
-    h_sizer->Add(m_btn_rearrange, 0, wxEXPAND | wxALIGN_CENTER_VERTICAL);
-    SetSizer(h_sizer);
+
+    v_sizer->Add(title, 0, wxLEFT);
+    v_sizer->Add(note, 0, wxLEFT);
+    v_sizer->Add(m_btn_rearrange, 0, wxLEFT);
+    main_sizer->Add(v_sizer, 0, wxLEFT, FromDIP(5));
+    SetSizer(main_sizer);
     Layout();
     Fit();
 }
@@ -762,8 +798,9 @@ void AMSSettingArrangeAMSOrder::Update(const MachineObject* obj)
 {
     if (obj) {
         m_ams_firmware_switch = obj->GetFilaSystem()->GetAmsFirmwareSwitch();
-        if (auto ptr = m_ams_firmware_switch.lock(); ptr->SupportSwitchFirmware()) {
-            Show(true);
+        const auto& print_jj = DevPrinterConfigUtil::get_json_from_config(obj->printer_type, "print");
+        if (print_jj.contains("support_ams_settings_reorder")) {
+            Show(DevJsonValParser::GetVal<bool>(print_jj, "support_ams_settings_reorder", false));
             return;
         }
     }
@@ -775,10 +812,8 @@ void AMSSettingArrangeAMSOrder::OnBtnRearrangeClicked(wxCommandEvent& event)
 {
     auto part = m_ams_firmware_switch.lock();
     if (part)  {
-        MessageDialog dlg(this, _L("AMS ID will be reset. If you want a specific ID sequence, "
-                                   "disconnect all AMS before resetting and connect them "
-                                   "in the desired order after resetting."),
-                                   SLIC3R_APP_NAME + _L("Info"), wxOK | wxCANCEL | wxICON_INFORMATION);
+        MessageDialog dlg(this, _L("Are you sure to reset the ID sequence of the connected AMS?"),
+                                   _L("Reset AMS Sequence"), wxOK | wxCANCEL | wxICON_INFORMATION);
         int rtn = dlg.ShowModal();
         if (rtn == wxID_OK) {
             part->GetFilaSystem()->CtrlAmsReset();
@@ -787,6 +822,5 @@ void AMSSettingArrangeAMSOrder::OnBtnRearrangeClicked(wxCommandEvent& event)
 
     event.Skip();
 }
-#endif
 
 }} // namespace Slic3r::GUI

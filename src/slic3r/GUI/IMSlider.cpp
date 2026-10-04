@@ -1,6 +1,7 @@
 #include "IMSlider.hpp"
 #include "libslic3r/GCode.hpp"
 #include "GUI_App.hpp"
+#include "Plater.hpp"
 #include "NotificationManager.hpp"
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
@@ -201,6 +202,7 @@ void IMSlider::SetMaxValue(const int max_value)
 void IMSlider::SetSliderValues(const std::vector<double> &values)
 {
     m_values = values;
+    m_layers_values.clear();
 }
 
 Info IMSlider::GetTicksValues() const
@@ -238,9 +240,10 @@ void IMSlider::SetTicksValues(const Info &custom_gcode_per_print_z)
         if (tick >= 0) m_ticks.ticks.emplace(TickCode{tick, h.type, h.extruder, h.color, h.extra});
     }
 
-    if (!was_empty && m_ticks.empty())
+    if (!was_empty && m_ticks.empty()) {
         // Switch to the "Feature type"/"Tool" from the very beginning of a new object slicing after deleting of the old one
-        ;// post_ticks_changed_event();
+        // post_ticks_changed_event();
+    }
 
     if (m_ticks.has_tick_with_code(ToolChange) && !m_can_change_color) {
         if (!wxGetApp().plater()->only_gcode_mode() && !wxGetApp().plater()->using_exported_file())
@@ -289,7 +292,7 @@ void IMSlider::SetLayersTimes(const std::vector<float> &layers_times, float tota
 
     // Erase duplicates values from m_values and save it to the m_layers_values
     // They will be used for show the correct estimated time for MM print, when "No sparce layer" is enabled
-    if (m_is_wipe_tower && m_values.size() != m_layers_times.size()) {
+    if (m_is_wipe_tower && m_values.size() != m_layers_times.size() || m_layers_values.empty()) {
         m_layers_values = m_values;
         sort(m_layers_values.begin(), m_layers_values.end());
         m_layers_values.erase(unique(m_layers_values.begin(), m_layers_values.end()), m_layers_values.end());
@@ -443,11 +446,36 @@ bool IMSlider::switch_one_layer_mode()
     if (m_show_custom_gcode_window)
         return false;
 
-    m_is_one_layer = !m_is_one_layer;
     if (!m_is_one_layer) {
-        SetLowerValue(m_min_value);
-        SetHigherValue(m_max_value);
+        m_pre_one_layer_lower  = m_lower_value;
+        m_pre_one_layer_higher = m_higher_value;
+        m_is_one_layer         = true;
+    } else {
+        m_is_one_layer = false;
+        // In one-layer mode both handles sit on the same tick; the selected handle
+        // is the one the user was driving (top = ssHigher, bottom = ssLower).
+        const int current = (m_selection == ssLower) ? m_lower_value : m_higher_value;
+
+        int restore_lower  = m_pre_one_layer_lower;
+        int restore_higher = m_pre_one_layer_higher;
+        if (restore_lower < m_min_value || restore_higher > m_max_value || restore_lower > restore_higher) {
+            restore_lower  = m_min_value;
+            restore_higher = m_max_value;
+        }
+
+        if (m_selection == ssLower) {
+            m_lower_value  = current;
+            m_higher_value = std::max(current, restore_higher);
+        } else {
+            m_higher_value = current;
+            m_lower_value  = std::min(current, restore_lower);
+        }
+        m_lower_value  = std::max(m_lower_value, m_min_value);
+        m_higher_value = std::min(m_higher_value, m_max_value);
+        if (m_lower_value > m_higher_value)
+            m_lower_value = m_higher_value;
     }
+
     m_selection == ssLower ? correct_lower_value() : correct_higher_value();
     if (m_selection == ssUndef) m_selection = ssHigher;
     set_as_dirty();
@@ -1109,6 +1137,9 @@ bool IMSlider::render(int canvas_width, int canvas_height)
         if (ImGui::ImageButton3(normal_id, hover_id, ONE_LAYER_BUTTON_SIZE * m_scale)) {
             switch_one_layer_mode();
         }
+        if (ImGui::IsItemHovered()) {
+            show_tooltip(_u8L("Toggle path view to current layer/all layers"));
+        }
         imgui.end();
     }
 
@@ -1148,7 +1179,7 @@ void IMSlider::render_input_custom_gcode(std::string custom_gcode)
             set_focus = false;
         }
         if (set_focus && !ImGui::IsAnyItemActive() && !ImGui::IsMouseClicked(0)) {
-            wxGetApp().plater()->get_current_canvas3D()->force_set_focus();
+            if (m_request_canvas_focus) m_request_canvas_focus();
             ImGui::SetKeyboardFocusHere(0);
             strcpy(m_custom_gcode, custom_gcode.c_str());
         }
@@ -1196,7 +1227,7 @@ void IMSlider::render_input_custom_gcode(std::string custom_gcode)
 }
 
 void IMSlider::do_go_to_layer(size_t layer_number) {
-    clamp((int)layer_number, m_min_value, m_max_value);
+    // SetLowerValue / SetHigherValue clamp to [m_min_value, m_max_value] internally.
     GetSelection() == ssLower ? SetLowerValue(layer_number) : SetHigherValue(layer_number);
 }
 
@@ -1230,7 +1261,7 @@ void IMSlider::render_go_to_layer_dialog()
             set_focus = false;
         }
         if (set_focus && !ImGui::IsAnyItemActive() && !ImGui::IsMouseClicked(0)) {
-            wxGetApp().plater()->get_current_canvas3D()->force_set_focus();
+            if (m_request_canvas_focus) m_request_canvas_focus();
             ImGui::SetKeyboardFocusHere(0);
         }
         ImGui::InputText("##input_layer_number", m_layer_number, sizeof(m_layer_number));
@@ -1518,7 +1549,7 @@ std::string IMSlider::get_label(int tick, LabelType label_type)
     const size_t value = tick;
 
     if (m_label_koef == 1.0 && m_values.empty()) {
-        std::to_string(value);
+        return std::to_string(value);
     }
     if (value >= m_values.size()) return "error";
 

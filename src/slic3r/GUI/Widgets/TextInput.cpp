@@ -41,10 +41,11 @@ TextInput::TextInput(wxWindow *     parent,
                      const wxPoint &pos,
                      const wxSize & size,
                      long           style,
-                     wxString       unit)
+                     wxString       unit,
+                     wxString       prefix)
     : TextInput()
 {
-    Create(parent, text, label, icon, pos, size, style, unit);
+    Create(parent, text, label, icon, pos, size, style, unit, prefix);
 }
 
 void TextInput::Create(wxWindow *     parent,
@@ -54,9 +55,11 @@ void TextInput::Create(wxWindow *     parent,
                        const wxPoint &pos,
                        const wxSize & size,
                        long           style,
-                       wxString       unit)
+                       wxString       unit,
+                       wxString       prefix)
 {
     m_unit    = unit;
+    m_prefix  = prefix;
     text_ctrl = nullptr;
     StaticBox::Create(parent, wxID_ANY, pos, size, style);
     wxWindow::SetLabel(label);
@@ -64,7 +67,15 @@ void TextInput::Create(wxWindow *     parent,
     style &= ~wxALIGN_MASK;
     state_handler.attach({&label_color, & text_color});
     state_handler.update_binds();
-    text_ctrl = new TextCtrl(this, wxID_ANY, text, {4, 4}, wxDefaultSize, style | wxBORDER_NONE | wxTE_PROCESS_ENTER);
+    
+    int prefix_space = 0;
+    if (!m_prefix.IsEmpty()) {
+        wxClientDC dc(this);
+        wxSize     prefix_size = dc.GetTextExtent(m_prefix);
+        prefix_space           = prefix_size.x + 8;
+    }
+
+    text_ctrl = new TextCtrl(this, wxID_ANY, text, {4 + prefix_space, 4}, wxDefaultSize, style | wxBORDER_NONE | wxTE_PROCESS_ENTER);
     text_ctrl->SetFont(Label::Body_14);
     text_ctrl->SetInitialSize(text_ctrl->GetBestSize());
     text_ctrl->SetBackgroundColour(background_color.colorForStates(state_handler.states()));
@@ -110,6 +121,13 @@ void TextInput::SetLabel(const wxString& label)
     Refresh();
 }
 
+void TextInput::SetPrefix(const wxString& prefix)
+{
+    m_prefix = prefix;
+    messureSize();
+    Refresh();
+}
+
 void TextInput::SetStaticTips(const wxString& tips, const wxBitmap& bitmap)
 {
     static_tips = tips;
@@ -141,6 +159,15 @@ void TextInput::SetIcon_1(const wxString &icon) {
         return;
     }
     this->icon_1 = ScalableBitmap(this, icon.ToStdString(), 14);
+    Rescale();
+}
+
+// Set icon_1 from a raw bitmap. Note: won't auto-rescale on DPI change
+// since ScalableBitmap::name() will be empty. Caller should re-set after DPI change.
+void TextInput::SetIcon_1(const wxBitmap &icon) {
+    this->icon_1 = ScalableBitmap();
+    if (icon.IsOk())
+        this->icon_1.bmp() = icon;
     Rescale();
 }
 
@@ -193,9 +220,13 @@ void TextInput::SetMinSize(const wxSize& size)
 
 void TextInput::DoSetSize(int x, int y, int width, int height, int sizeFlags)
 {
+    const wxSize oldSize = GetSize();
     wxWindow::DoSetSize(x, y, width, height, sizeFlags);
     if (sizeFlags & wxSIZE_USE_EXISTING) return;
     wxSize size = GetSize();
+    // The border/background/dropdown arrow are custom-painted from the full bounds; a partial
+    // erase on grow would leave the old right edge stale, so force a full repaint on any resize.
+    if (size != oldSize) Refresh();
     wxPoint textPos = {5, 0};
     if (this->icon.bmp().IsOk()) {
         wxSize szIcon = this->icon.GetBmpSize();
@@ -208,14 +239,22 @@ void TextInput::DoSetSize(int x, int y, int width, int height, int sizeFlags)
     bool align_right = GetWindowStyle() & wxALIGN_RIGHT;
     if (align_right)
         textPos.x += labelSize.x;
+
+    int prefix_space = 0;
+    if (!m_prefix.IsEmpty()) {
+        wxClientDC dc(this);
+        wxSize     prefix_size = dc.GetTextExtent(m_prefix);
+        prefix_space           = prefix_size.x + 8;
+    }
     if (text_ctrl) {
         wxClientDC dc(this);
         wxSize unitSize = dc.GetTextExtent(m_unit);
         int unit_space = (m_unit.IsEmpty() ? 0 : unitSize.x + 5) + 10;
         wxSize textSize = text_ctrl->GetSize();
-        textSize.x = size.x - textPos.x - labelSize.x - unit_space;
+        textSize.x = size.x - textPos.x - labelSize.x - 10 - prefix_space;
+        if(textSize.x < -1) textSize.x = -1;
         text_ctrl->SetSize(textSize);
-        text_ctrl->SetPosition({textPos.x, (size.y - textSize.y) / 2});
+        text_ctrl->SetPosition({textPos.x + prefix_space, (size.y - textSize.y) / 2});
     }
 }
 
@@ -271,6 +310,12 @@ void TextInput::render(wxDC& dc)
     if (!text.IsEmpty()) {
         if (static_tips.IsEmpty()) {
             wxSize textSize = text_ctrl->GetSize();
+            int    prefix_space = 0;
+            if (!m_prefix.IsEmpty()) {
+                wxClientDC dc(this);
+                wxSize     prefix_size = dc.GetTextExtent(m_prefix);
+                prefix_space           = prefix_size.x + 8;
+            }
             if (align_right || align_center)
             {
                 if (pt.x + labelSize.x + 5 > size.x)
@@ -279,7 +324,7 @@ void TextInput::render(wxDC& dc)
             }
             else
             {
-                pt.x += textSize.x;
+                pt.x += textSize.x + prefix_space;
                 pt.y = (size.y + textSize.y) / 2 - labelSize.y;
             }
             dc.SetTextForeground(label_color.colorForStates(states));
@@ -317,6 +362,20 @@ void TextInput::render(wxDC& dc)
             dc.SetFont(font);
             dc.DrawText(static_tips, pt);
         }
+    }
+    if (!m_prefix.IsEmpty() && text_ctrl) {
+        wxPoint ctrl_pos    = text_ctrl->GetPosition();
+        wxSize  ctrl_size   = text_ctrl->GetSize();
+        wxSize  prefix_size = dc.GetTextExtent(m_prefix);
+        int     prefix_space = prefix_size.x + 8;
+
+        int x = ctrl_pos.x - prefix_space - 2;
+        int y = ctrl_pos.y + (ctrl_size.y - prefix_size.y) / 2 - 2;
+
+        wxFont prefix_font = text_ctrl->GetFont();
+        dc.SetFont(prefix_font);
+        dc.SetTextForeground(wxColour(144, 144, 144));
+        dc.DrawText(m_prefix, wxPoint(x, y));
     }
     if (!m_unit.IsEmpty() && text_ctrl) {
         wxPoint ctrl_pos  = text_ctrl->GetPosition();

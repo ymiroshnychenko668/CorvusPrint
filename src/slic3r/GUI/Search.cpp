@@ -16,6 +16,7 @@
 #include "GUI_App.hpp"
 #include "Plater.hpp"
 #include "Tab.hpp"
+#include "DeviceCore/DevConfigUtil.h"
 
 #define FTS_FUZZY_MATCH_IMPLEMENTATION
 #include "fts_fuzzy_match.h"
@@ -68,6 +69,22 @@ void change_opt_key(std::string &opt_key, DynamicPrintConfig *config, int &cnt)
 
 static std::string get_key(const std::string &opt_key, Preset::Type type) { return std::to_string(int(type)) + ";" + opt_key; }
 
+// Some print options are gated by a printer capability flag (see
+// ConfigManipulation::update_print_fff_config and the TabPrinter custom g-code toggles):
+// when the current printer lacks the capability its option line is hidden in the Tab,
+// so it must not surface in the parameter search either.
+static bool is_option_gated_out_for_printer(const std::string &opt_key)
+{
+    if (opt_key == "enable_wrapping_detection" || opt_key == "wrapping_detection_gcode") {
+        auto *preset_bundle = GUI::wxGetApp().preset_bundle;
+        if (preset_bundle == nullptr) return false;
+        const std::string printer_type = preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle);
+        auto              supported    = DevPrinterConfigUtil::support_wrapping_detection(printer_type);
+        return !supported;
+    }
+    return false;
+}
+
 void OptionsSearcher::append_options(DynamicPrintConfig *config, Preset::Type type, ConfigOptionMode mode)
 {
     auto emplace = [this, type](const std::string key, const wxString &label) {
@@ -113,7 +130,7 @@ void OptionsSearcher::append_options(DynamicPrintConfig *config, Preset::Type ty
         wxString label = opt.full_label.empty() ? opt.label : opt.full_label;
 
         std::string key = get_key(opt_key, type);
-        if (cnt == 0)
+        if (cnt == 0 || multi_variant_text_ctrl_options.find(opt_key) != multi_variant_text_ctrl_options.end())
             emplace(key, label);
         else
             for (int i = 0; i < cnt; ++i)
@@ -222,6 +239,7 @@ bool OptionsSearcher::search(const std::string &search, bool force /* = false*/,
     std::vector<uint16_t> matches, matches2;
     for (size_t i = 0; i < options.size(); i++) {
         const Option &opt = options[i];
+        if (is_option_gated_out_for_printer(opt.opt_key())) continue;
         if (full_list) {
             std::string label = into_u8(get_label(opt));
             //all
@@ -1013,9 +1031,11 @@ void SearchObjectDialog::Popup(wxPoint position /*= wxDefaultPosition*/)
 
 void SearchObjectDialog::Dismiss()
 {
-    auto focus_window = this->GetParent()->HasFocus();
-    if (!focus_window)
-        PopupWindow::Dismiss();
+    auto pos    = wxGetMousePosition();
+    auto parent = this->GetParent();
+    if (parent && parent->GetScreenRect().Contains(pos)) return;
+    if (this->GetScreenRect().Contains(pos)) return;
+    PopupWindow::Dismiss();
 }
 
 void SearchObjectDialog::update_list()

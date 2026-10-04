@@ -352,7 +352,15 @@ function SendWXMessage( strMsg )
 	
 	if(bCheck!=null)
 	{
-		setTimeout("window.wx.postMessage("+strMsg+")",1);
+		// Callers hand over a JSON string and the host expects the parsed object, so parse it here.
+		// The old string form of setTimeout() built the call as source and had the engine eval it,
+		// which a page carrying a Content-Security-Policy without 'unsafe-eval' refuses outright -
+		// that silently killed every page-to-host command.
+		let tMsg=IsJson(strMsg);
+		if( tMsg===null )
+			tMsg=strMsg;
+
+		setTimeout(function(){ window.wx.postMessage(tMsg); },1);
 	}
 }
 
@@ -413,7 +421,8 @@ function CheckCssLinkExist( LinkPath )
 function SwitchDarkMode( DarkCssPath )
 {		
 	ExecuteDarkMode( DarkCssPath );
-    setInterval("ExecuteDarkMode('"+DarkCssPath+"')",1000);	
+    // Pass a function, not source text: the string form is an eval and CSP refuses it.
+    setInterval(function(){ ExecuteDarkMode(DarkCssPath); },1000);
 }
 
 function ExecuteDarkMode( DarkCssPath )
@@ -537,6 +546,157 @@ function showToast(message, duration = 2500) {
   }, duration);
 }
 
+function showConfirmDialog(options) {
+  var opts = options || {};
+  var title = opts.title || "Confirm";
+  var message = opts.message || "";
+  var okText = opts.okText || "OK";
+  var cancelText = opts.cancelText || "Cancel";
+  var allowHtml = opts.allowHtml === true;
+  var showCancel = opts.showCancel !== false;
+  var closeOnOverlay = opts.closeOnOverlay === true;
+  var closeOnEsc = opts.closeOnEsc !== false;
+  var onOk = typeof opts.onOk === "function" ? opts.onOk : null;
+  var onCancel = typeof opts.onCancel === "function" ? opts.onCancel : null;
+  var onClose = typeof opts.onClose === "function" ? opts.onClose : null;
+
+  var old = document.getElementById('confirm-dialog-overlay');
+  if (old) old.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'confirm-dialog-overlay';
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    inset: '0',
+    background: 'rgba(0, 0, 0, 0.3)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+    opacity: '0',
+    transition: 'opacity 120ms ease-out'
+  });
+
+  var dialog = document.createElement('div');
+  Object.assign(dialog.style, {
+    width: '86%',
+    maxWidth: '520px',
+    background: '#ffffff',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    boxShadow: '0 10px 28px rgba(0, 0, 0, 0.25)',
+    transform: 'scale(0.96)',
+    transition: 'transform 120ms ease-out'
+  });
+
+  var header = document.createElement('div');
+  header.innerText = title;
+  Object.assign(header.style, {
+    background: '#00a85a',
+    color: '#ffffff',
+    padding: '12px 16px',
+    fontSize: '16px',
+    textAlign: 'center'
+  });
+
+  var body = document.createElement('div');
+  if (allowHtml)
+    body.innerHTML = message;
+  else
+    body.innerText = message;
+  Object.assign(body.style, {
+    padding: '18px 24px 12px',
+    color: '#222222',
+    fontSize: '14px',
+    lineHeight: '1.6',
+    whiteSpace: 'pre-wrap'
+  });
+
+  var footer = document.createElement('div');
+  Object.assign(footer.style, {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '24px',
+    padding: '0 24px 20px'
+  });
+
+  function buildButton(text) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.innerText = text;
+    Object.assign(btn.style, {
+      minWidth: '84px',
+      padding: '6px 18px',
+      background: '#e0e0e0',
+      border: '1px solid #c9c9c9',
+      borderRadius: '6px',
+      fontSize: '14px',
+      cursor: 'pointer'
+    });
+    return btn;
+  }
+
+  var okBtn = buildButton(okText);
+  var cancelBtn = buildButton(cancelText);
+
+  footer.appendChild(okBtn);
+  if (showCancel)
+    footer.appendChild(cancelBtn);
+
+  dialog.appendChild(header);
+  dialog.appendChild(body);
+  dialog.appendChild(footer);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  function cleanup() {
+    window.removeEventListener('keydown', onKeydown);
+  }
+
+  function close(result) {
+    overlay.style.opacity = '0';
+    dialog.style.transform = 'scale(0.96)';
+    setTimeout(function() {
+      cleanup();
+      overlay.remove();
+      if (onClose) onClose(result);
+    }, 160);
+  }
+
+  function onKeydown(evt) {
+    if (evt.key === 'Escape' && closeOnEsc) {
+      if (onCancel) onCancel();
+      close(false);
+    }
+  }
+
+  okBtn.addEventListener('click', function() {
+    if (onOk) onOk();
+    close(true);
+  });
+
+  cancelBtn.addEventListener('click', function() {
+    if (onCancel) onCancel();
+    close(false);
+  });
+
+  overlay.addEventListener('click', function(event) {
+    if (closeOnOverlay && event.target === overlay) {
+      if (onCancel) onCancel();
+      close(false);
+    }
+  });
+
+  window.addEventListener('keydown', onKeydown);
+
+  requestAnimationFrame(function() {
+    overlay.style.opacity = '1';
+    dialog.style.transform = 'scale(1)';
+  });
+
+  return { close: function() { close(false); } };
+}
+
 function isBase64String(value) {
   if (typeof value !== 'string' || !value.trim()) return false;
   const trimmed = value.trim();
@@ -567,7 +727,7 @@ function showBase64ImageLayer(base64Str) {
   const imgWrapper = document.createElement('div');
   Object.assign(imgWrapper.style, {
     maxWidth: '90%',
-    maxHeight: '100%',
+    maxHeight: '90vh',
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)'
   });
 
@@ -576,7 +736,9 @@ function showBase64ImageLayer(base64Str) {
   Object.assign(img.style, {
     display: 'block',
     maxWidth: '100%',
-    maxHeight: '100%',
+    width: 'auto',
+    height: 'auto',
+    maxHeight: '90vh',
     borderRadius: '8px'
   });
 
@@ -584,14 +746,19 @@ function showBase64ImageLayer(base64Str) {
   overlay.appendChild(imgWrapper);
   document.body.appendChild(overlay);
 
-  const closeLayer = () => overlay.remove();
+  const handleKeydown = function(evt) {
+    if (evt.key === 'Escape') {
+      closeLayer();
+    }
+  };
+
+  const closeLayer = () => {
+    window.removeEventListener('keydown', handleKeydown);
+    overlay.remove();
+  };
+
   overlay.addEventListener('click', event => {
     if (event.target === overlay) closeLayer();
   });
-  window.addEventListener('keydown', function handler(evt) {
-    if (evt.key === 'Escape') {
-      window.removeEventListener('keydown', handler);
-      closeLayer();
-    }
-  });
+  window.addEventListener('keydown', handleKeydown);
 }

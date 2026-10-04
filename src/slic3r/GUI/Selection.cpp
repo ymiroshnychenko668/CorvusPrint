@@ -32,6 +32,42 @@ static const std::array<float, 4> UNIFORM_SCALE_COLOR = { 0.923f, 0.504f, 0.264f
 namespace Slic3r {
 namespace GUI {
 
+namespace {
+
+void normalize_pasted_object_filament_config(ModelObject &object, size_t filaments_count)
+{
+    auto normalize_pasted_filament_overrides = [filaments_count](auto &config) {
+        static const char *keys[] = {
+            "support_filament",
+            "support_interface_filament",
+            "wall_filament",
+            "sparse_infill_filament",
+            "solid_infill_filament"
+        };
+
+        for (const char *key : keys) {
+            if (config.has(key) && config.opt_int(key) > filaments_count)
+                config.erase(key);
+        }
+
+        if (config.has("extruder") && config.opt_int("extruder") > filaments_count)
+            config.erase("extruder");
+    };
+
+    if (!object.config.has("extruder") || object.config.extruder() < 1 || object.config.extruder() > filaments_count)
+        object.config.set_key_value("extruder", new ConfigOptionInt(1));
+
+    normalize_pasted_filament_overrides(object.config);
+
+    for (ModelVolume *volume : object.volumes)
+        normalize_pasted_filament_overrides(volume->config);
+
+    for (auto &layer_range : object.layer_config_ranges)
+        normalize_pasted_filament_overrides(layer_range.second);
+}
+
+} // namespace
+
 Selection::VolumeCache::TransformCache::TransformCache()
     : position(Vec3d::Zero())
     , rotation(Vec3d::Zero())
@@ -83,11 +119,13 @@ bool Selection::Clipboard::is_sla_compliant() const
 Selection::Clipboard::Clipboard()
 {
     m_model.reset(new Model);
+    m_copy_volume_step = 0;
 }
 
 void Selection::Clipboard::reset()
 {
     m_model->clear_objects();
+    m_copy_volume_step = 0;
 }
 
 bool Selection::Clipboard::is_empty() const
@@ -154,15 +192,54 @@ void Selection::set_mode(EMode mode) {
     m_mode = mode;
 }
 
-int Selection::query_real_volume_idx_from_other_view(unsigned int object_idx, unsigned int instance_idx, unsigned int model_volume_idx)
+int Selection::query_real_volume_idx_by_part_guid(const std::string& part_guid, unsigned int instance_idx)
 {
-    for (int i = 0; i < m_volumes->size(); i++) {
-        auto v = (*m_volumes)[i];
-        if (v->object_idx() == object_idx && instance_idx == v->instance_idx() && model_volume_idx == v->volume_idx()) {
+    if (part_guid.empty() || m_model == nullptr)
+        return -1;
+    // First try to honor the requested instance; fall back to the first matching volume of any instance.
+    int fallback = -1;
+    for (int i = 0; i < (int) m_volumes->size(); i++) {
+        const GLVolume* v = (*m_volumes)[i];
+        const int obj_idx = v->object_idx();
+        const int vol_idx = v->volume_idx();
+        if (obj_idx < 0 || vol_idx < 0 || obj_idx >= (int) m_model->objects.size())
+            continue;
+        const ModelObject* mo = m_model->objects[obj_idx];
+        if (mo == nullptr || vol_idx >= (int) mo->volumes.size())
+            continue;
+        const ModelVolume* mv = mo->volumes[vol_idx];
+        if (mv == nullptr)
+            continue;
+        // A GLVolume in the assembly view matches when its backing ModelVolume shares identity with the
+        // prepare-side part: same part_guid, or it references that prepare part via assembly_src_guid.
+        if (mv->part_guid() != part_guid && mv->assembly_src_guid() != part_guid)
+            continue;
+        if ((unsigned int) v->instance_idx() == instance_idx)
             return i;
-        }
+        if (fallback < 0)
+            fallback = i;
     }
-    return -1;
+    return fallback;
+}
+
+int Selection::query_real_volume_idx_from_other_model_volume(const GLVolume* source_volume, const Model& source_model, bool use_assembly_src_guid)
+{
+    if (source_volume == nullptr)
+        return -1;
+    const int obj_idx = source_volume->object_idx();
+    const int vol_idx = source_volume->volume_idx();
+    if (obj_idx < 0 || vol_idx < 0 || obj_idx >= (int) source_model.objects.size())
+        return -1;
+    const ModelObject* mo = source_model.objects[obj_idx];
+    if (mo == nullptr || vol_idx >= (int) mo->volumes.size())
+        return -1;
+    const ModelVolume* mv = mo->volumes[vol_idx];
+    if (mv == nullptr)
+        return -1;
+    const std::string& guid = use_assembly_src_guid && !mv->assembly_src_guid().empty() ? mv->assembly_src_guid() : mv->part_guid();
+    if (guid.empty())
+        return -1;
+    return query_real_volume_idx_by_part_guid(guid, (unsigned int) source_volume->instance_idx());
 }
 
 void Selection::add(unsigned int volume_idx, bool as_single_selection, bool check_for_already_contained)
@@ -427,7 +504,7 @@ ModelVolume *Selection::get_selected_single_volume(int &out_object_idx, int &out
 
 ModelObject *Selection::get_selected_single_object(int &out_object_idx)
 {
-    if (is_single_volume() || is_single_modifier() || is_single_full_object()) {
+    if (is_single_volume() || is_single_modifier() || is_multiple_volume() || is_multiple_modifier() || is_single_full_object()) {
         const GLVolume *gl_volume = get_volume(*get_volume_idxs().begin());
         out_object_idx            = gl_volume->object_idx();
         return get_model()->objects[out_object_idx];
@@ -532,6 +609,7 @@ void Selection::clone(int numbers)
     wxGetApp().plater()->take_snapshot(std::string("Selection-clone"));
     copy_to_clipboard();
     for (int i = 0; i < numbers; i++) {
+        m_clipboard.copy_volume_step_up();
         paste_from_clipboard();
     }
 }
@@ -716,6 +794,11 @@ void Selection::clear()
 #endif
 
     // #et_FIXME fake KillFocus from sidebar
+    // While the app is closing the sidebar and the current canvas are being torn
+    // down; reaching into plater()->canvas3D() here use-after-frees the destroyed
+    // view3D during ~GLCanvas3D. There is nothing to focus when closing.
+    if (wxGetApp().is_closing()) return;
+
     wxGetApp().plater()->canvas3D()->handle_sidebar_focus_event("", false);
 }
 
@@ -1172,7 +1255,7 @@ void Selection::move_to_center(const Vec3d& displacement, bool local)
             if (local)
                 v.set_volume_offset(m_cache.volumes_data[i].get_volume_position() + displacement);
             else {
-                const Vec3d local_displacement = (m_cache.volumes_data[i].get_instance_rotation_matrix() * m_cache.volumes_data[i].get_instance_scale_matrix() * m_cache.volumes_data[i].get_instance_mirror_matrix()).inverse() * displacement;
+                const Vec3d local_displacement = m_cache.volumes_data[i].get_instance_full_matrix().linear().inverse() * displacement;
                 v.set_volume_offset(m_cache.volumes_data[i].get_volume_position() + local_displacement);
             }
         }
@@ -1181,7 +1264,7 @@ void Selection::move_to_center(const Vec3d& displacement, bool local)
                 v.set_instance_offset(m_cache.volumes_data[i].get_instance_position() + displacement);
             }
             else {
-                const Vec3d local_displacement = (m_cache.volumes_data[i].get_instance_rotation_matrix() * m_cache.volumes_data[i].get_instance_scale_matrix() * m_cache.volumes_data[i].get_instance_mirror_matrix()).inverse() * displacement;
+                const Vec3d local_displacement = m_cache.volumes_data[i].get_instance_full_matrix().linear().inverse() * displacement;
                 v.set_volume_offset(m_cache.volumes_data[i].get_volume_position() + local_displacement);
                 translation_type = Volume;
             }
@@ -1301,11 +1384,11 @@ void Selection::translate(const Vec3d &displacement, TransformationType transfor
     else if (m_mode == Volume)
         synchronize_unselected_volumes();
 #endif // !DISABLE_INSTANCES_SYNCH
-    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != GLCanvas3D::ECanvasType::CanvasAssembleView) {
+    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != ECanvasType::CanvasAssembleView) {
         ensure_not_below_bed();
     }
     set_bounding_boxes_dirty();
-    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != GLCanvas3D::ECanvasType::CanvasAssembleView) {
+    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != ECanvasType::CanvasAssembleView) {
         wxGetApp().plater()->canvas3D()->requires_check_outside_state();
     }
 }
@@ -1447,7 +1530,7 @@ void Selection::rotate(const Vec3d& rotation, TransformationType transformation_
     }
 
     set_bounding_boxes_dirty();
-    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != GLCanvas3D::ECanvasType::CanvasAssembleView) {
+    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != ECanvasType::CanvasAssembleView) {
         wxGetApp().plater()->canvas3D()->requires_check_outside_state();
     }
 }
@@ -1495,13 +1578,74 @@ void Selection::scale(const Vec3d& scale, TransformationType transformation_type
 }
 
 #if ENABLE_ENHANCED_PRINT_VOLUME_FIT
+ BoundingBoxf3 find_largest_remaining_volume(const BoundingBoxf3 &big_box, const BoundingBoxf3 &small_box)
+{ // require big_box contain small_box
+    BoundingBoxf3 largest_box = big_box;
+    float        max_area = 0.0f;
+    auto          box_size = big_box.size();
+    auto          width_x  = box_size[0];
+    auto          height_y = box_size[1];
+
+    float right_area = (big_box.max.x() - small_box.max.x()) * height_y;
+    if (right_area > max_area) {
+        max_area = right_area;
+        largest_box.min       = Vec3d(small_box.max.x(), big_box.min.y(), big_box.min.z());
+        largest_box.max       = big_box.max;
+        largest_box.defined = true;
+    }
+
+    double left_area = (small_box.min.x() - big_box.min.x()) * height_y;
+    if (left_area > max_area) {
+        max_area            = left_area;
+        largest_box.min = big_box.min;
+        largest_box.max     = Vec3d(small_box.min.x(), big_box.max.y(), big_box.max.z());
+        largest_box.defined = true;
+    }
+
+    double bottom_area = (small_box.min.y() - big_box.min.y()) * width_x;
+    if (bottom_area > max_area) {
+        max_area            = bottom_area;
+        largest_box.min     = big_box.min;
+        largest_box.max     = Vec3d(big_box.max.x(), small_box.min.y(), big_box.max.z());
+        largest_box.defined = true;
+    }
+
+    double up_area = (big_box.max.y() - small_box.max.y()) * width_x;
+    if (up_area > max_area) {
+        max_area            = up_area;
+        largest_box.min     = Vec3d(big_box.min.x(), small_box.max.y(), big_box.min.z());
+        largest_box.max     = big_box.max;
+        largest_box.defined = true;
+    }
+    return largest_box;
+}
+
 void Selection::scale_to_fit_print_volume(const BuildVolume& volume)
 {
+    if (is_empty() || m_mode == Volume)
+        return;
+
+    // One snapshot for the dummy measure scale, the real scale, and the bed centering
+    // move. Inner do_scale/do_move must not create extra undo steps.
+    Plater::TakeSnapshot snapshot(wxGetApp().plater(), std::string("Scale To Fit"));
+
+    // Dual-toolhead machines publish one height per extruder; scale against the shorter one
+    // so the result stays printable for both heads.
+    auto scale_print_height = [](const BuildVolume &bv) {
+        double h = bv.printable_height();
+        const auto &hs = bv.extruder_heights();
+        if (hs.size() >= 2) {
+            for (double eh : hs) {
+                if (eh > 0.0)
+                    h = std::min(h, eh);
+            }
+        }
+        return h;
+    };
+
     auto fit = [this](double s, Vec3d offset) {
         if (s <= 0.0 || s == 1.0)
             return;
-
-        wxGetApp().plater()->take_snapshot(std::string("Scale To Fit"));
 
         TransformationType type;
         type.set_world();
@@ -1509,12 +1653,12 @@ void Selection::scale_to_fit_print_volume(const BuildVolume& volume)
         type.set_joint();
 
         // apply scale
-        start_dragging();
+        setup_cache();
         scale(s * Vec3d::Ones(), type);
         wxGetApp().plater()->canvas3D()->do_scale(""); // avoid storing another snapshot
 
         // center selection on print bed
-        start_dragging();
+        setup_cache();
         offset.z() = -get_bounding_box().min.z();
         TransformationType trafo_type;
         trafo_type.set_relative();
@@ -1525,22 +1669,72 @@ void Selection::scale_to_fit_print_volume(const BuildVolume& volume)
         //wxGetApp().obj_manipul()->set_dirty();
     };
 
-    auto fit_rectangle = [this, fit](const BuildVolume& volume) {
-        const BoundingBoxf3 print_volume = volume.bounding_volume();
+    auto fit_rectangle = [this, fit, scale_print_height](const BuildVolume& build_volume) {
+        BoundingBoxf3 print_volume = build_volume.bounding_volume();
+        auto                exclude_area = wxGetApp().plater()->get_partplate_list().get_exclude_area();
+        auto          plate        = wxGetApp().plater()->get_partplate_list().get_curr_plate();
+        if (exclude_area.size() == 4) {
+            BoundingBoxf temp_box(exclude_area);
+            if (temp_box.defined) {
+                auto origin = plate->get_origin();
+                BoundingBoxf3 small_box(Vec3d(origin.x() + temp_box.min.x(), origin.y() + temp_box.min.y(), 0),
+                                        Vec3d(origin.x() + temp_box.max.x(), origin.y() + temp_box.max.y(), 0));
+                auto  largest_remaining_box = find_largest_remaining_volume(print_volume, small_box);
+                print_volume = largest_remaining_box;
+            }
+        }
+        if (build_volume.get_extruder_area_count() > 0) {
+            auto cur_extruders     = plate->get_extruders();
+            auto cur_filament_maps = plate->get_filament_maps();
+            bool use_left_extruder = false;
+            for (int extruder : cur_extruders) {
+                auto index = extruder - 1;
+                if (index >= 0 && index < cur_filament_maps.size()) {
+                    if (cur_filament_maps[index] == 1) {
+                        use_left_extruder = true;
+                        break;
+                    }
+                }
+            }
+            auto                 printable_area    = build_volume.printable_area();
+            std::array<float, 4> full_print_volume = {(float) printable_area[0].x(), (float) printable_area[0].y(), (float) printable_area[2].x(), (float) printable_area[2].y()};
+            const BuildVolume::BuildSharedVolume &shared_volume = build_volume.get_shared_volume();
+            std::array<float, 4>                  xy_data       = shared_volume.data;
+            std::array<float, 2> zs = shared_volume.zs;
+            zs[0]                   = -1;
+
+            Vec3d temp_min = print_volume.min;
+            Vec3d temp_max(xy_data[2], xy_data[3], zs[1]);
+            if (!use_left_extruder) {
+                temp_min = Vec3d(xy_data[0], xy_data[1], 0);
+                temp_max = print_volume.max;
+            }
+            print_volume.reset();
+            print_volume.merge(temp_min);
+            print_volume.merge(temp_max);
+        }
+        print_volume.max.z() = scale_print_height(build_volume);
         const Vec3d print_volume_size = print_volume.size();
 
-        // adds 1/100th of a mm on all sides to avoid false out of print volume detections due to floating-point roundings
-        const Vec3d box_size = get_bounding_box().size() + 0.02 * Vec3d::Ones();
+         // adds 1/100th of a mm on both xy sides to avoid false out of print volume detections due to floating-point roundings
+        setup_cache();
+        TransformationType transformation_type;
+        scale(Vec3d::Ones(), transformation_type);
+        wxGetApp().plater()->canvas3D()->do_scale("");
+        set_bounding_boxes_dirty();
 
-        const double sx = (box_size.x() != 0.0) ? print_volume_size.x() / box_size.x() : 0.0;
-        const double sy = (box_size.y() != 0.0) ? print_volume_size.y() / box_size.y() : 0.0;
-        const double sz = (box_size.z() != 0.0) ? print_volume_size.z() / box_size.z() : 0.0;
+        Vec3d box_size = get_bounding_box().size();
+        box_size.x() += 0.02f;
+        box_size.y() += 0.02f;
 
-        if (sx != 0.0 && sy != 0.0 && sz != 0.0)
-            fit(std::min(sx, std::min(sy, sz)), print_volume.center() - get_bounding_box().center());
+        const double sx = print_volume_size.x() / box_size.x();
+        const double sy = print_volume_size.y() / box_size.y();
+        const double sz = print_volume_size.z() / box_size.z();
+
+        return fit(std::min(sx, std::min(sy, sz)), print_volume.center() - get_bounding_box().center());
     };
 
-    auto fit_circle = [this, fit](const BuildVolume& volume) {
+    auto fit_circle = [this, fit, scale_print_height](const BuildVolume& volume) {
         const Geometry::Circled& print_circle = volume.circle();
         double print_circle_radius = unscale<double>(print_circle.radius);
 
@@ -1568,15 +1762,13 @@ void Selection::scale_to_fit_print_volume(const BuildVolume& volume)
         if (circle_radius == 0.0 || max_z == 0.0)
             return;
 
-        const double s = std::min(print_circle_radius / circle_radius, volume.printable_height() / max_z);
+        const double print_h = scale_print_height(volume);
+        const double s = std::min(print_circle_radius / circle_radius, print_h / max_z);
         const Vec3d sel_center = get_bounding_box().center();
         const Vec3d offset = s * (Vec3d(unscale<double>(circle.center.x()), unscale<double>(circle.center.y()), 0.5 * max_z) - sel_center);
-        const Vec3d print_center = { unscale<double>(print_circle.center.x()), unscale<double>(print_circle.center.y()), 0.5 * volume.printable_height() };
+        const Vec3d print_center = { unscale<double>(print_circle.center.x()), unscale<double>(print_circle.center.y()), 0.5 * print_h };
         fit(s, print_center - (sel_center + offset));
     };
-
-    if (is_empty() || m_mode == Volume)
-        return;
 
     switch (volume.type())
     {
@@ -1606,7 +1798,7 @@ void Selection::scale_to_fit_print_volume(const DynamicPrintConfig& config)
         {
             double s = std::min(sx, std::min(sy, sz));
             if (s != 1.0) {
-                wxGetApp().plater()->take_snapshot("Scale To Fit");
+                Plater::TakeSnapshot snapshot(wxGetApp().plater(), std::string("Scale To Fit"));
 
                 TransformationType type;
                 type.set_world();
@@ -1703,7 +1895,7 @@ void Selection::scale_and_translate(const Vec3d &scale, const Vec3d &world_trans
 
     ensure_on_bed();
     set_bounding_boxes_dirty();
-    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != GLCanvas3D::ECanvasType::CanvasAssembleView) {
+    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != ECanvasType::CanvasAssembleView) {
         wxGetApp().plater()->canvas3D()->requires_check_outside_state();
     }
 }
@@ -1803,13 +1995,18 @@ void Selection::translate(unsigned int object_idx, unsigned int instance_idx, co
     this->set_bounding_boxes_dirty();
 }
 
-void Selection::translate(unsigned int object_idx, unsigned int instance_idx, unsigned int volume_idx, const Vec3d &displacement) {
+void Selection::translate(unsigned int object_idx, unsigned int instance_idx, unsigned int volume_idx, const Vec3d &displacement, bool local)
+{
     if (!m_valid) return;
 
     for (unsigned int i : m_list) {
         GLVolume &v = *(*m_volumes)[i];
-        if (v.object_idx() == (int) object_idx && v.instance_idx() == (int) instance_idx && v.volume_idx() == (int) volume_idx)
-            v.set_volume_offset(v.get_volume_offset() + displacement);
+        if (v.object_idx() == (int) object_idx && v.instance_idx() == (int) instance_idx && v.volume_idx() == (int) volume_idx) {
+            Vec3d local_displacement = displacement;
+            if (!local)
+                local_displacement = v.get_instance_transformation().get_matrix_no_offset().inverse() * displacement;
+            v.set_volume_offset(v.get_volume_offset() + local_displacement);
+        }
     }
 
     this->set_bounding_boxes_dirty();
@@ -1913,6 +2110,12 @@ void Selection::notify_instance_update(int object_idx, int instance_idx)
         else
             plate_list.notify_instance_update(object_idx, instance_idx);
     }
+}
+
+void Selection::set_volume_selection_mode(EMode mode)
+{
+    if (!m_volume_selection_locked)
+        m_volume_selection_mode = mode;
 }
 
 void Selection::erase()
@@ -2175,6 +2378,9 @@ void Selection::copy_to_clipboard()
                     ModelVolume* src_volume = src_object->volumes[volume_idx];
                     ModelVolume* dst_volume = dst_object->add_volume(*src_volume);
                     dst_volume->set_new_unique_id();
+                    // New identity for prepare<->assembly sync; shared part_guid would make
+                    // sync_assemble_model_on_enter treat the paste as already mapped.
+                    dst_volume->ensure_part_guid(true);
                 } else {
                     assert(false);
                 }
@@ -2807,7 +3013,7 @@ void Selection::render_sidebar_scale_hints(const std::string& sidebar_field, boo
 void Selection::render_sidebar_layers_hints(GLShaderProgram& shader, const std::string& sidebar_field) const
 {
     static const double Margin = 10.0;
-    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != GLCanvas3D::ECanvasType::CanvasView3D) {
+    if (wxGetApp().plater()->canvas3D()->get_canvas_type() != ECanvasType::CanvasView3D) {
         return;
     }
     std::string field = sidebar_field;
@@ -3180,7 +3386,7 @@ void Selection::ensure_not_below_bed()
 
 bool Selection::is_from_fully_selected_instance(unsigned int volume_idx) const
 {
-    if (m_mode == Instance && wxGetApp().plater()->canvas3D()->get_canvas_type() == GLCanvas3D::ECanvasType::CanvasAssembleView) {
+    if (m_mode == Instance && wxGetApp().plater()->canvas3D()->get_canvas_type() == ECanvasType::CanvasAssembleView) {
         return true;
     }
     struct SameInstance
@@ -3229,6 +3435,17 @@ void Selection::paste_volumes_from_clipboard()
         Transform3d src_matrix = src_object->instances[0]->get_transformation().get_matrix_no_offset();
         Transform3d dst_matrix = dst_instance->get_transformation().get_matrix_no_offset();
         bool from_same_object = (src_object->input_file == dst_object->input_file) && src_matrix.isApprox(dst_matrix);
+        BoundingBoxf3 sel_bb;
+        if (from_same_object) {
+            for (unsigned int i : m_list) {
+                const GLVolume &gl_vol = *(*m_volumes)[i];
+                if (gl_vol.object_idx() == dst_obj_idx && gl_vol.instance_idx() == dst_inst_idx) {
+                    BoundingBoxf3 vol_bb = gl_vol.transformed_convex_hull_bounding_box();
+                    sel_bb.merge(vol_bb);
+                }
+            }
+        }
+        const Transform3d vol_linear_correction = dst_matrix.inverse() * src_matrix;
 
         // used to keep relative position of multivolume selections when pasting from another object
         BoundingBoxf3 total_bb;
@@ -3238,17 +3455,27 @@ void Selection::paste_volumes_from_clipboard()
         {
             ModelVolume* dst_volume = dst_object->add_volume(*src_volume);
             dst_volume->set_new_unique_id();
+            dst_volume->ensure_part_guid(true);
             if (from_same_object)
             {
-//                // if the volume comes from the same object, apply the offset in world system
-//                double offset = wxGetApp().plater()->canvas3D()->get_size_proportional_to_max_bed_size(0.05);
-//                dst_volume->translate(dst_matrix.inverse() * Vec3d(offset, offset, 0.0));
+                int step = m_clipboard.copy_volume_step();
+                if (step > 0) {
+                    double offset = sel_bb.size().x() * step;
+                    const Vec3d displacement = dst_matrix.inverse() * Vec3d(offset, -0.5 * offset, 0.0);
+                    dst_volume->translate(displacement);
+                    // translate() only updates m_transformation; keep per-volume assemble pose in sync
+                    // so the paste offset also shows in assembly view (add_volume copies assemble_*).
+                    if (dst_volume->is_assemble_initialized())
+                        dst_volume->set_assemble_offset(dst_volume->get_assemble_transformation().get_offset() + displacement);
+                }
             }
             else
             {
+                // keep the real size/orientation across objects with different instance transforms
+                dst_volume->set_transformation(vol_linear_correction * src_volume->get_matrix());
                 // if the volume comes from another object, apply the offset as done when adding modifiers
                 // see ObjectList::load_generic_subobject()
-                total_bb.merge(dst_volume->mesh().bounding_box().transformed(src_volume->get_matrix()));
+                total_bb.merge(dst_volume->mesh().bounding_box().transformed(dst_volume->get_matrix()));
             }
 
             volumes.push_back(dst_volume);
@@ -3280,6 +3507,8 @@ void Selection::paste_objects_from_clipboard()
     check_model_ids_validity(*m_model);
 #endif /* _DEBUG */
 
+    const auto              *filament_colors = wxGetApp().preset_bundle->project_config.option<ConfigOptionStrings>("filament_colour", false);
+    const size_t             filaments_count = filament_colors == nullptr ? 1 : std::max<size_t>(1, filament_colors->size());
     std::vector<size_t> object_idxs;
     const ModelObjectPtrs& src_objects = m_clipboard.get_objects();
     PartPlate *            plate       = wxGetApp().plater()->get_partplate_list().get_curr_plate();
@@ -3304,6 +3533,12 @@ void Selection::paste_objects_from_clipboard()
     {
         const ModelObject *src_object = src_objects[i];
         ModelObject* dst_object = m_model->add_object(*src_object);
+        // add_object copies part_guid; force new GUIDs so assembly sync does not collapse
+        // the paste into the source object (STEP multi-volume copies hit this hard).
+        for (ModelVolume *mv : dst_object->volumes)
+            if (mv->is_model_part())
+                mv->ensure_part_guid(true);
+        normalize_pasted_object_filament_config(*dst_object, filaments_count);
 
         // BBS: find an empty cell to put the copied object
         BoundingBoxf3 bbox = src_object->instance_convex_hull_bounding_box(size_t(0));
@@ -3326,12 +3561,8 @@ void Selection::paste_objects_from_clipboard()
 
         for (ModelInstance* inst : dst_object->instances) {
             inst->set_offset(displacement);
-
-            //BBS init asssmble transformation
-            Geometry::Transformation t = inst->get_transformation();
-            inst->set_assemble_transformation(t);
         }
-
+        m_model->set_assembly_pos(dst_object);
         object_idxs.push_back(m_model->objects.size() - 1);
 #ifdef _DEBUG
 	    check_model_ids_validity(*m_model);

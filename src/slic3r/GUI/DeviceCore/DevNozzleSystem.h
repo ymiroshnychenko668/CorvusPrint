@@ -26,7 +26,31 @@ namespace Slic3r
        NozzleType      m_nozzle_type = NozzleType::ntUndefine;// 0-stainless_steel 1-hardened_steel 5-tungsten_carbide
        float           m_diameter = 0.4f;// 0.2mm  0.4mm  0.6mm 0.8mm
 
+    public:
+        static wxString             GetNozzleFlowTypeStr(NozzleFlowType type);
+        static std::string          GetNozzleFlowTypeString(NozzleFlowType type);// no translation
+        static NozzleFlowType       ToNozzleFlowType(const std::string& type);
+        static NozzleVolumeType     ToNozzleVolumeType(const std::string& type);
+        static NozzleFlowType       VariantToNozzleFlowType(const std::string& variant);
+        static std::string          ToNozzleFlowString(const NozzleFlowType& type);
+
+        static wxString             GetNozzleTypeStr(NozzleType type);
+        static std::string          GetNozzleTypeString(NozzleType type);
+
+        static NozzleFlowType       ToNozzleFlowType(const NozzleVolumeType& type);
+        static wxString             GetNozzleVolumeTypeStr(const NozzleVolumeType& type);
+        static NozzleVolumeType     ToNozzleVolumeType(const NozzleFlowType& type);
+        static std::string          ToNozzleVolumeString(const NozzleVolumeType& type);
+        static std::string          ToNozzleVolumeShortString(const NozzleVolumeType& type);
+
+        static float                ToNozzleDiameterFloat(const NozzleDiameterType& type);
+        static NozzleDiameterType   ToNozzleDiameterType(float diameter);
+        static NozzleDiameterType   ToNozzleDiameterType(const std::string& diameter);
+        static wxString             ToNozzleDiameterStr(const NozzleDiameterType& type);
+
    public:
+       bool     IsEmpty() const { return m_nozzle_id < 0; }
+
        /**/
        void       SetRack(const std::weak_ptr<DevNozzleRack>& rack) { m_nozzle_rack = rack; };
 
@@ -39,17 +63,12 @@ namespace Slic3r
        float          GetNozzleDiameter() const { return m_diameter; }
        float          GetNozzleWear() const { return m_wear; }
 
+       int            GetNozzlePrintTime() const { return m_nozzle_print_time; }
        // display
        wxString GetDisplayId() const;
        wxString GetNozzleDiameterStr() const {  return wxString::Format("%.1f mm", m_diameter);}
        wxString GetNozzleFlowTypeStr() const;
-       wxString GetNozzleFlowTypeCaliStyleStr() const;
        wxString GetNozzleTypeStr() const;
-
-       static wxString      GetNozzleFlowTypeStr(NozzleFlowType type);
-       static std::string   GetNozzleFlowTypeString(NozzleFlowType type);
-       static wxString      GetNozzleTypeStr(NozzleType type);
-       static std::string   GetNozzleTypeString(NozzleType type);
 
        // serial number
        wxString GetSerialNumber() const { return GetFirmwareInfo().sn; }
@@ -58,13 +77,14 @@ namespace Slic3r
        // location
        bool AtLeftExtruder() const;
        bool AtRightExtruder() const;
+
        int  GetLogicExtruderId() const;// warning: logical extruder id
+       int  GetExtruderId() const;// warning: physical extruder id
 
        /* holder nozzle*/
        bool IsOnRack() const { return m_on_rack; }
        bool IsInfoReliable() const;
 
-       bool IsEmpty() const { return m_nozzle_id < 0; }
        bool IsNormal() const;
        bool IsAbnormal() const;
        bool IsUnknown() const;
@@ -88,6 +108,7 @@ namespace Slic3r
        std::string m_filament_clr;// main color
 
        std::weak_ptr<DevNozzleRack> m_nozzle_rack; // weak pointer to the nozzle rack
+       int m_nozzle_print_time{0};
    };
 
    class DevNozzleSystem
@@ -114,6 +135,7 @@ namespace Slic3r
        bool                            ContainsExtNozzle(int id) const { return m_ext_nozzles.find(id) != m_ext_nozzles.end(); }
        DevNozzle                       GetExtNozzle(int id) const;
        const std::map<int, DevNozzle>& GetExtNozzles() const { return m_ext_nozzles;}
+       int                             GetExtNozzleCount() const { return m_ext_nozzles.size();}
 
        // nozzles on rack
        void  SetSupportNozzleRack(bool supported);

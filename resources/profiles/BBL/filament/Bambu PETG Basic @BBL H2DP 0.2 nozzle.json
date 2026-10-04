@@ -8,6 +8,10 @@
     "fan_min_speed": [
         "20"
     ],
+    "filament_cooling_before_tower": [
+        "10",
+        "10"
+    ],
     "filament_flush_volumetric_speed": [
         "3",
         "3"
@@ -19,6 +23,9 @@
     "filament_ramming_travel_time": [
         "0",
         "0"
+    ],
+    "filament_tower_ironing_area": [
+        "8"
     ],
     "include": [
         "fdm_filament_template_direct_dual"
@@ -36,6 +43,12 @@
     ],
     "pre_start_fan_time": [
         "0"
+    ],
+    "supertack_plate_temp": [
+        "60"
+    ],
+    "supertack_plate_temp_initial_layer": [
+        "60"
     ],
     "compatible_printers": [
         "Bambu Lab H2D Pro 0.2 nozzle"

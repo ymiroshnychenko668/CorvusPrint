@@ -41,6 +41,7 @@ protected:
     MachineObject*             curr_obj { nullptr };
 
     bool                       m_ui_op_lock{ false };
+    bool                       m_pending_sync{ false }; // combo/extruder change: wait for fetch, then sync once
 };
 
 class EditCalibrationHistoryDialog : public DPIDialog
@@ -77,6 +78,7 @@ protected:
     virtual void on_cancel(wxCommandEvent &event);
     void on_select_extruder(wxCommandEvent &event);
     void on_select_nozzle_pos(wxCommandEvent &event);
+    void on_select_nozzle_volume(wxCommandEvent &event);
 
     wxArrayString get_all_filaments(const MachineObject *obj);
     int get_extruder_id(int extruder_index);  // extruder_index 0 : left, 1 : right
