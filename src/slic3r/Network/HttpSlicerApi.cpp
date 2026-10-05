@@ -14,7 +14,6 @@
 // cpp-httplib is a header-only library
 // Download from: https://github.com/yhirose/cpp-httplib
 // Place httplib.h in deps or include path
-#define CPPHTTPLIB_OPENSSL_SUPPORT
 #include <httplib.h>
 
 #include <sstream>

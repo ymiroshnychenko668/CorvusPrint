@@ -69,9 +69,4 @@ else()
     target_compile_definitions(slic3r_network PUBLIC SLIC3R_HAS_HTTPLIB=1)
 endif()
 
-# OpenSSL for HTTPS support (optional)
-find_package(OpenSSL)
-if(OpenSSL_FOUND)
-    target_link_libraries(slic3r_network PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-    target_compile_definitions(slic3r_network PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
-endif()
+# The remote API uses httplib::Server (HTTP), so it does not need TLS support.
