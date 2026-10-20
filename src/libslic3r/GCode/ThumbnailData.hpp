@@ -80,7 +80,9 @@ struct PlateBBoxData
     int first_extruder = 0;
     float nozzle_diameter = 0.4;
     std::string bed_type;
-    float first_layer_time;
+    // Default member initialiser: PartPlate holds this struct as a member (PartPlate::cali_bboxes_data) and is created with
+    // `new PartPlate(...)`, so without an initialiser the CLI wrote stale heap bytes into slice_info.config.
+    float first_layer_time = 0.f;
     // version 1: use view type ColorPrint (filament color)
     // version 2: use view type FilamentId (filament id)
     int version = 2;

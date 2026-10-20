@@ -6973,16 +6973,7 @@ int CLI::run(int argc, char **argv)
                         //BOOST_LOG_TRIVIAL(info) << boost::format("print_volume {%1%,%2%,%3%}->{%4%, %5%, %6%}, has %7% printables") % print_volume.min(0) % print_volume.min(1)
                         //    % print_volume.min(2) % print_volume.max(0) % print_volume.max(1) % print_volume.max(2) % count << std::endl;
 #endif
-                        if (is_bbl_3mf && !no_check && load_filament_count == 0)
-                        {
-                            //set filament_prime_volume to 45 when uploading
-                            ConfigOptionFloats *filament_prime_volume_option = m_print_config.option<ConfigOptionFloats>("filament_prime_volume");
-                            int temp_count = filament_prime_volume_option->values.size();
-                            for (int temp_index = 0; temp_index < temp_count; temp_index++)
-                            {
-                                filament_prime_volume_option->values[temp_index] = 45.f;
-                            }
-                        }
+                        // Preserve the loaded filament prime volumes; PrintConfig supplies 45 when absent.
                         DynamicPrintConfig new_print_config = m_print_config;
                         new_print_config.apply(*part_plate->config());
                         new_print_config.apply(m_extra_config, true);

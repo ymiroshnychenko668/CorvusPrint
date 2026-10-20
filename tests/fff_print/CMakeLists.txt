@@ -30,6 +30,25 @@ endif()
 # catch_discover_tests(${_TEST_NAME}_tests TEST_PREFIX "${_TEST_NAME}: ")
 add_test(${_TEST_NAME}_tests ${_TEST_NAME}_tests ${CATCH_EXTRA_ARGS})
 
+# EXP-11 regressions: the loop self-intersection check of FillFloatingConcentric and the default value of
+# PlateBBoxData::first_layer_time. A separate executable because fff_print_tests above does not compile at this
+# revision (test_gcodewriter.cpp still calls the removed GCodeWriter::set_extruder(int) and lift()). The objects of
+# libslic3r that the test pulls in reference Http, BBL_Encrypt and nanosvg, which only the GUI target compiles, so
+# their sources are built here; native_nanosvg.cpp holds the nanosvg implementation.
+# Build: -DSLIC3R_BUILD_TESTS=ON, then cmake --build <build dir> --target floating_determinism_tests
+add_executable(floating_determinism_tests
+    fff_print_tests.cpp
+    test_floating_determinism.cpp
+    native_nanosvg.cpp
+    ${PROJECT_SOURCE_DIR}/src/slic3r/Utils/Http.cpp
+    ${PROJECT_SOURCE_DIR}/src/slic3r/Utils/BBLUtil.cpp
+)
+# Fill headers include paths relative to the libslic3r source root (FillFloatingConcentric.hpp: "Arachne/...").
+target_include_directories(floating_determinism_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/libslic3r)
+target_link_libraries(floating_determinism_tests test_common libslic3r libcurl OpenSSL::SSL OpenSSL::Crypto)
+set_property(TARGET floating_determinism_tests PROPERTY FOLDER "tests")
+add_test(floating_determinism_tests floating_determinism_tests ${CATCH_EXTRA_ARGS})
+
 add_executable(support_material_on_wipe_tower_tests
 	fff_print_tests.cpp
 	test_data.cpp

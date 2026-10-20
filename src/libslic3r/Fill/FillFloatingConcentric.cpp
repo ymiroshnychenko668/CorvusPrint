@@ -693,9 +693,17 @@ FloatingThickPolylines FillFloatingConcentric::resplit_order_loops(Point curr_po
             Polyline polyline = thick_polyline;
             auto bbox_line = get_extents(polyline);
 
+            // EdgeGrid::Contour keeps raw pointers into the vector handed to create(), so it must outlive every
+            // query. The former `grid.create({ polyline.points }, ...)` passed a temporary that was freed at the end
+            // of that statement, and has_intersecting_edges() then read freed heap memory: point 0 held allocator
+            // metadata, so whether the floating detection ran changed from process to process.
+            const std::vector<Points> grid_contours{ polyline.points };
             EdgeGrid::Grid grid;
             grid.set_bbox(bbox_line);
-            grid.create({ polyline.points }, scaled<coord_t>(10.), !all_extrusions[idx]->is_closed);
+            // open_polylines = true: create() then treats a loop whose last point repeats the first as closed and
+            // drops the duplicate. With false the duplicate stayed, and the two segments meeting at the start vertex
+            // (same point, different addresses) counted as intersecting whenever they are collinear.
+            grid.create(grid_contours, scaled<coord_t>(10.), true);
             if (grid.has_intersecting_edges())
                 is_self_intersect = true;
         }
