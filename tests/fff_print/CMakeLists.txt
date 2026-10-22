@@ -49,6 +49,24 @@ target_link_libraries(floating_determinism_tests test_common libslic3r libcurl O
 set_property(TARGET floating_determinism_tests PROPERTY FOLDER "tests")
 add_test(floating_determinism_tests floating_determinism_tests ${CATCH_EXTRA_ARGS})
 
+# filament_prime_volume(_nc) regressions of Print::_make_wipe_tower (a short vector is read with get_at). A separate
+# executable for the same reasons as floating_determinism_tests above, built from the same sources, so the link has
+# no unresolved symbols. test_data.cpp provides the test meshes.
+# Build: -DSLIC3R_BUILD_TESTS=ON, then cmake --build <build dir> --target wipe_tower_prime_volume_tests
+add_executable(wipe_tower_prime_volume_tests
+    fff_print_tests.cpp
+    test_data.cpp
+    test_data.hpp
+    test_wipe_tower_prime_volume.cpp
+    native_nanosvg.cpp
+    ${PROJECT_SOURCE_DIR}/src/slic3r/Utils/Http.cpp
+    ${PROJECT_SOURCE_DIR}/src/slic3r/Utils/BBLUtil.cpp
+)
+target_include_directories(wipe_tower_prime_volume_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/libslic3r)
+target_link_libraries(wipe_tower_prime_volume_tests test_common libslic3r libcurl OpenSSL::SSL OpenSSL::Crypto)
+set_property(TARGET wipe_tower_prime_volume_tests PROPERTY FOLDER "tests")
+add_test(wipe_tower_prime_volume_tests wipe_tower_prime_volume_tests ${CATCH_EXTRA_ARGS})
+
 add_executable(support_material_on_wipe_tower_tests
 	fff_print_tests.cpp
 	test_data.cpp

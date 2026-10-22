@@ -3978,8 +3978,8 @@ void Print::_make_wipe_tower()
                 float grab_purge_volume = m_config.grab_length.get_at(extruder_id) * 2.4; //(diameter/2)^2*PI=2.4
                 volume_to_purge = std::max(0.f, volume_to_purge - grab_purge_volume);
 
-                float wipe_volume_ec = m_config.filament_prime_volume.values[filament_id];
-                float wipe_volume_nc = m_config.filament_prime_volume_nc.values[filament_id];
+                float wipe_volume_ec = m_config.filament_prime_volume.get_at(filament_id);
+                float wipe_volume_nc = m_config.filament_prime_volume_nc.get_at(filament_id);
                 // special primte volume settings for H2C
                 if(m_config.prime_volume_mode == PrimeVolumeMode::pvmSaving){
                     wipe_volume_ec = 15.f;
