@@ -4009,7 +4009,7 @@ void Print::_make_wipe_tower()
     wipe_tower.set_used_filament_ids(std::vector<int>(used_filament_ids.begin(), used_filament_ids.end()));
 
     std::vector<int> categories;
-    for (size_t i = 0; i < m_config.filament_adhesiveness_category.values.size(); ++i) {
+    for (size_t i = 0; i < number_of_extruders; ++i) {
         categories.push_back(m_config.filament_adhesiveness_category.get_at(i));
     }
     wipe_tower.set_filament_categories(categories);

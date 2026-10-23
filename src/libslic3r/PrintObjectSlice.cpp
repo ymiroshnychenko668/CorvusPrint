@@ -1268,7 +1268,7 @@ void PrintObject::slice_volumes(long long *region_split_ms_out, long long *mm_se
                 LayerRegion *region = layer->get_region(i);
                 ExPolygons ex_polys = to_expolygons(region->slices.surfaces);
                 int       filament_id = region->region().extruder(FlowRole::frPerimeter) - 1;
-                double       scale       = print->config().filament_shrink.values[filament_id] * 0.01;
+                double       scale       = print->config().filament_shrink.get_at(filament_id) * 0.01;
                 if (scale != 1) {
                     scale = 1 / scale;
                     for (ExPolygon &poly : ex_polys)

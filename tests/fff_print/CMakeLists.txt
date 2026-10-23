@@ -67,6 +67,24 @@ target_link_libraries(wipe_tower_prime_volume_tests test_common libslic3r libcur
 set_property(TARGET wipe_tower_prime_volume_tests PROPERTY FOLDER "tests")
 add_test(wipe_tower_prime_volume_tests wipe_tower_prime_volume_tests ${CATCH_EXTRA_ARGS})
 
+# Short per-filament vectors (a missing 3MF key keeps the one-element default) read with get_at: filament_shrink,
+# filament_adhesiveness_category, filament_change_length(_nc), override_process_overhang_speed. Built like
+# wipe_tower_prime_volume_tests above.
+# Build: -DSLIC3R_BUILD_TESTS=ON, then cmake --build <build dir> --target short_filament_vector_tests
+add_executable(short_filament_vector_tests
+    fff_print_tests.cpp
+    test_data.cpp
+    test_data.hpp
+    test_short_filament_vectors.cpp
+    native_nanosvg.cpp
+    ${PROJECT_SOURCE_DIR}/src/slic3r/Utils/Http.cpp
+    ${PROJECT_SOURCE_DIR}/src/slic3r/Utils/BBLUtil.cpp
+)
+target_include_directories(short_filament_vector_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/libslic3r)
+target_link_libraries(short_filament_vector_tests test_common libslic3r libcurl OpenSSL::SSL OpenSSL::Crypto)
+set_property(TARGET short_filament_vector_tests PROPERTY FOLDER "tests")
+add_test(short_filament_vector_tests short_filament_vector_tests ${CATCH_EXTRA_ARGS})
+
 add_executable(support_material_on_wipe_tower_tests
 	fff_print_tests.cpp
 	test_data.cpp

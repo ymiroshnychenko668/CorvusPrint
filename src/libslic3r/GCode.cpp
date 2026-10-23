@@ -1188,7 +1188,7 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
         }
 
         // do unretract after setting current extruder_id
-        float filament_tower_interface_pre_extrusion_length = gcodegen.m_config.filament_tower_interface_pre_extrusion_length.values[tcr.new_tool];
+        float filament_tower_interface_pre_extrusion_length = gcodegen.m_config.filament_tower_interface_pre_extrusion_length.get_at(tcr.new_tool);
         bool is_contact_pre_extrusion = tcr.is_contact && gcodegen.m_config.enable_tower_interface_features;
         bool is_petg_pre_extrusion    = !is_contact_pre_extrusion && gcodegen.config().filament_type.get_at(tcr.new_tool) == "PETG" && gcodegen.m_config.has_filament_switcher;
         float extra_unretract = 0.f;
@@ -2901,7 +2901,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
 
         auto used_filaments = print.get_slice_used_filaments(false);
         m_placeholder_parser.set("is_all_bbl_filament", std::all_of(used_filaments.begin(), used_filaments.end(), [&](auto idx) {
-            return m_config.filament_vendor.values[idx] == "Bambu Lab";
+            return m_config.filament_vendor.get_at(idx) == "Bambu Lab";
             }));
 
         float wipe_tower_center_pos_x= -1.f, wipe_tower_center_pos_y = -1.f;
@@ -2939,7 +2939,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         m_placeholder_parser.set("outer_wall_volumetric_speed", new ConfigOptionFloat(outer_wall_volumetric_speed));
 
         auto first_layer_filaments = print.get_slice_used_filaments(true);
-        bool has_tpu_in_first_layer = std::any_of(first_layer_filaments.begin(), first_layer_filaments.end(), [&](unsigned int idx) { return m_config.filament_type.values[idx] == "TPU"; });
+        bool has_tpu_in_first_layer = std::any_of(first_layer_filaments.begin(), first_layer_filaments.end(), [&](unsigned int idx) { return m_config.filament_type.get_at(idx) == "TPU"; });
         m_placeholder_parser.set("has_tpu_in_first_layer", new ConfigOptionBool(has_tpu_in_first_layer));
 
         if (print.calib_params().mode == CalibMode::Calib_PA_Line) {
@@ -6144,10 +6144,10 @@ bool GCode::is_enable_overhang_speed()
     int filament_idx = 0;
     if(m_writer.filament()){
         filament_idx  = m_writer.filament()->id();
-        use_filament_overhang_speed = m_config.override_process_overhang_speed.values[filament_idx];
+        use_filament_overhang_speed = m_config.override_process_overhang_speed.get_at(filament_idx);
     }
     if(use_filament_overhang_speed)
-        return m_config.filament_enable_overhang_speed.values[filament_idx];
+        return m_config.filament_enable_overhang_speed.get_at(filament_idx);
     else
         return NOZZLE_CONFIG(enable_overhang_speed);
 }
@@ -6715,7 +6715,7 @@ double GCode::get_overhang_degree_corr_speed(float normal_speed, double path_deg
     bool use_filament_overhang_speed = false;
     if (m_writer.filament()) {
         filament_idx = m_writer.filament()->id();
-        use_filament_overhang_speed = m_config.override_process_overhang_speed.values[filament_idx];
+        use_filament_overhang_speed = m_config.override_process_overhang_speed.get_at(filament_idx);
     }
 
     int lower_degree_bound = int(path_degree);

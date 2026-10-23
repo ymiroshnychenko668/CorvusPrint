@@ -367,7 +367,7 @@ std::unordered_map<int, std::unordered_map<int, double>> PrintObject::calc_estim
             bool use_filament_bridge_speed = print_config.filament_enable_overhang_speed.get_at(filament_id);
 
             if (use_filament_bridge_speed)
-                return print_config.filament_bridge_speed.values[filament_id];
+                return print_config.filament_bridge_speed.get_at(filament_id);
             else
                 return region_config.bridge_speed.values[extruder_id];
         }
